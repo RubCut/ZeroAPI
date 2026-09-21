@@ -12,15 +12,16 @@
   let providerId = "unknown";
   let providerName = "Unknown";
 
+  // Model name in API = just site name (provider id) per user request
   const MODEL_MAP = {
-    deepseek: { def: "deepseek-chat", all: ["deepseek-chat", "deepseek-reasoner"] },
-    chatgpt:  { def: "gpt-4o", all: ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"] },
-    gemini:   { def: "gemini-2.0-flash", all: ["gemini-2.0-flash", "gemini-1.5-pro"] },
-    kimi:     { def: "kimi-k2", all: ["kimi-k2"] },
-    glm:      { def: "glm-4", all: ["glm-4"] },
-    qwen:     { def: "qwen-turbo", all: ["qwen-turbo"] },
-    meta:     { def: "llama-3", all: ["llama-3"] },
-    arena:    { def: "arena", all: ["arena"] },
+    deepseek: { def: "deepseek" },
+    chatgpt:  { def: "chatgpt" },
+    gemini:   { def: "gemini" },
+    kimi:     { def: "kimi" },
+    glm:      { def: "glm" },
+    qwen:     { def: "qwen" },
+    meta:     { def: "meta" },
+    arena:    { def: "arena" },
   };
 
   function detectProvider() {
@@ -106,13 +107,12 @@
 
   function renderBar() {
     if (!bar) return;
-    const info = MODEL_MAP[providerId] || { def: "auto", all: ["auto"] };
+    const info = MODEL_MAP[providerId] || { def: providerId };
     const apiModel = info.def;
-    const allModels = info.all.join(", ");
 
     if (modelEl) {
       modelEl.textContent = apiModel;
-      modelEl.title = `API model: ${apiModel}\nAll for ${providerName}: ${allModels}\nUse: model="${apiModel}" in OpenAI SDK`;
+      modelEl.title = `API model: ${apiModel}\nUse model="${apiModel}" in OpenAI SDK`;
     }
 
     // dot
@@ -121,7 +121,7 @@
       dot.title = `Processing ${currentModel || apiModel}`;
     } else if (apiConnected) {
       dot.className = isActiveTab ? "on" : "idle";
-      dot.title = isActiveTab ? `Active for API — model: ${apiModel}` : `API online — click to use ${providerName} (${apiModel})`;
+      dot.title = isActiveTab ? `Active for API — model: ${apiModel}` : `API online — click to use ${apiModel}`;
     } else {
       dot.className = "off";
       dot.title = "API offline — run python run_server.py";
@@ -134,7 +134,7 @@
     } else if (apiConnected) {
       if (isActiveTab) stateEl.textContent = `✓ Active`;
       else stateEl.textContent = `Ready`;
-      stateEl.title = `Provider: ${providerName} | Model: ${apiModel} | ${allModels}`;
+      stateEl.title = `Provider: ${providerName} | Model: ${apiModel}`;
     } else {
       stateEl.textContent = `Offline`;
       stateEl.title = "API server offline";
