@@ -235,6 +235,11 @@
     if (provEl) provEl.textContent = providerName;
   }
 
+  let anchorPadEl = null;
+  function clearAnchorPad() {
+    if (anchorPadEl) { try { anchorPadEl.style.paddingTop = ""; } catch {} anchorPadEl = null; }
+  }
+
   function placeBar() {
     requestAnimationFrame(placeBar);
     if (!bar) return;
@@ -251,32 +256,79 @@
       }
     }
 
+    // Try inline mount first (DeepSeek, ChatGPT, Gemini)
     let mountParent = null;
     let mountBefore = null;
+    let mountInside = false;
     try {
       if (typeof ZSProvider !== 'undefined' && ZSProvider.barMount) {
         const m = ZSProvider.barMount();
         if (m && m.parent && m.parent.isConnected) {
           mountParent = m.parent;
           mountBefore = m.before || null;
+          mountInside = !!m.inside;
         }
       }
     } catch {}
 
     if (mountParent) {
+      clearAnchorPad();
       if (bar.parentElement !== mountParent || bar.nextElementSibling !== mountBefore) {
         try { mountParent.insertBefore(bar, mountBefore); } catch {}
       }
       bar.classList.add("za-bar-inline");
+      bar.classList.toggle("za-bar-inside", mountInside);
+      bar.classList.remove("za-bar-anchored");
       bar.style.position = "";
       bar.style.top = "";
       bar.style.left = "";
       bar.style.width = "";
       bar.style.display = "flex";
+      bar.style.zIndex = "";
+      // Provider class for per-site CSS
+      bar.classList.forEach(c => { if (c.startsWith("za-prov-")) bar.classList.remove(c); });
+      bar.classList.add(`za-prov-${providerId}`);
       return;
     }
 
-    bar.classList.remove("za-bar-inline");
+    // Anchored mode (Kimi, Meta) - fixed but hugs composer top edge with padding
+    let anchorEl = null;
+    try {
+      if (typeof ZSProvider !== 'undefined' && ZSProvider.barAnchor) {
+        anchorEl = ZSProvider.barAnchor();
+      }
+    } catch {}
+
+    if (anchorEl && anchorEl.isConnected) {
+      bar.classList.remove("za-bar-inline", "za-bar-inside");
+      bar.classList.add("za-bar-anchored");
+      if (root && bar.parentElement !== root) root.appendChild(bar);
+      const r = anchorEl.getBoundingClientRect();
+      if (!r.width) { bar.style.display = "none"; clearAnchorPad(); return; }
+      bar.style.display = "flex";
+      const bh = bar.offsetHeight || 34;
+      if (anchorPadEl && anchorPadEl !== anchorEl) clearAnchorPad();
+      anchorPadEl = anchorEl;
+      anchorEl.style.paddingTop = (bh + 6) + "px";
+      bar.style.position = "fixed";
+      bar.style.left = Math.round(r.left) + "px";
+      bar.style.top = Math.round(r.top + topOffset) + "px";
+      bar.style.width = Math.round(r.width) + "px";
+      bar.style.zIndex = "2147483645";
+      bar.classList.forEach(c => { if (c.startsWith("za-prov-")) bar.classList.remove(c); });
+      bar.classList.add(`za-prov-${providerId}`);
+      // Menu positioning
+      const menuEl = document.getElementById("za-menu");
+      if (menuEl && !menuEl.hidden) {
+        menuEl.style.right = Math.round(window.innerWidth - (r.left + r.width)) + "px";
+        menuEl.style.bottom = Math.round(window.innerHeight - r.top + 6) + "px";
+        menuEl.style.maxHeight = Math.max(140, Math.round(r.top - 16)) + "px";
+      }
+      return;
+    }
+
+    clearAnchorPad();
+    bar.classList.remove("za-bar-inline", "za-bar-inside", "za-bar-anchored");
     if (root && bar.parentElement !== root) root.appendChild(bar);
     bar.style.display = "flex";
     bar.style.position = "fixed";
@@ -284,9 +336,16 @@
     bar.style.left = "0";
     bar.style.width = "100%";
     bar.style.zIndex = "2147483645";
-    if (zsBar) {
-      bar.style.zIndex = "2147483645";
-      bar.style.top = topOffset + "px";
+    bar.classList.forEach(c => { if (c.startsWith("za-prov-")) bar.classList.remove(c); });
+    bar.classList.add(`za-prov-${providerId}`);
+
+    // Menu for floating mode
+    const menuEl = document.getElementById("za-menu");
+    if (menuEl && !menuEl.hidden) {
+      const br = bar.getBoundingClientRect();
+      menuEl.style.right = Math.round(window.innerWidth - br.right) + "px";
+      menuEl.style.bottom = Math.round(window.innerHeight - br.top + 6) + "px";
+      menuEl.style.maxHeight = Math.max(140, Math.round(br.top - 16)) + "px";
     }
   }
 
@@ -341,9 +400,46 @@
     renderBar();
   });
 
+  function pageThemeHint() {
+    const de = document.documentElement, b = document.body;
+    const cls = (de.className + " " + (b ? b.className : "")).toLowerCase();
+    if (/\bdark\b/.test(cls)) return "dark";
+    if (/\blight\b/.test(cls)) return "light";
+    const attr = (de.getAttribute("data-theme") || de.getAttribute("data-color-mode") || de.getAttribute("data-color-scheme") || "").toLowerCase();
+    if (/dark/.test(attr)) return "dark";
+    if (/light/.test(attr)) return "light";
+    const cs = (getComputedStyle(de).colorScheme || "").toLowerCase();
+    if (/dark/.test(cs) && !/light/.test(cs)) return "dark";
+    if (/light/.test(cs) && !/dark/.test(cs)) return "light";
+    return null;
+  }
+  function effectiveBg() {
+    let n = document.body;
+    while (n && n !== document.documentElement) {
+      const c = getComputedStyle(n).backgroundColor;
+      if (c && !/(transparent)/.test(c) && !/,\s*0\s*\)$/.test(c)) return c;
+      n = n.parentElement;
+    }
+    return getComputedStyle(document.documentElement).backgroundColor || "rgb(255,255,255)";
+  }
+  function applyTheme() {
+    let light;
+    const hint = pageThemeHint();
+    if (hint) light = hint === "light";
+    else {
+      const m = (effectiveBg().match(/\d+(?:\.\d+)?/g) || []).map(Number);
+      if (m.length < 3) return;
+      light = 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2] > 140;
+    }
+    document.documentElement.classList.toggle("za-light", light);
+    document.documentElement.classList.toggle("zs-light", light);
+  }
+
   detectProvider();
   checkActive().then(() => {
     build();
+    applyTheme();
+    setInterval(applyTheme, 2000);
     setInterval(pollStatus, 3000);
     setTimeout(pollStatus, 1000);
     setInterval(renderBar, 1000);
