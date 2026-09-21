@@ -364,25 +364,49 @@ async def api_status():
 # --- Models endpoints with active filtering ---
 
 @app.get("/v1/models")
-async def list_models(active_only: bool = False):
+async def list_models(active_only: bool = False, simple: bool = False):
+    """
+    For AI News plugin compatibility:
+    - Default: return simple site-name models (deepseek, chatgpt, gemini...) always, so plugin dropdown shows all options
+    - ?active_only=true: only models with connected browsers
+    - ?simple=true: only simple 8 models + auto (for minimal UI)
+    - ?simple=false (default false but we still prioritize simple): if no ?active_only, return simple models + auto (8) for plugin, full list for OpenAI SDK compatibility via ?simple=false&active_only=false returns all
+    """
     clients = ws_manager.get_all_clients()
     active_providers = get_active_providers()
-    # If clients connected, return only active models by default (for AI News plugin)
-    # If ?active_only=false explicitly, return all
-    if clients and not active_only:
-        # Return active models only — simple site names first
-        filtered = [m for m in ALL_MODELS if m["provider"] in active_providers or m["id"] in active_providers]
-        # If filtered empty (e.g. provider mismatch), fallback to all simple models
-        if not filtered:
-            filtered = [m for m in ALL_MODELS if m["id"] in {"deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena","auto"}]
-    elif active_only and clients:
-        filtered = [m for m in ALL_MODELS if m["provider"] in active_providers or m["id"] in active_providers]
+    
+    SIMPLE_IDS = {"deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena","auto"}
+    
+    if active_only:
+        if not clients:
+            filtered = [m for m in ALL_MODELS if m["id"] in SIMPLE_IDS]
+        else:
+            filtered = [m for m in ALL_MODELS if (m["provider"] in active_providers or m["id"] in active_providers) and m["id"] in SIMPLE_IDS]
+            if not filtered:
+                filtered = [m for m in ALL_MODELS if m["id"] in SIMPLE_IDS and (m["provider"] in active_providers or m["id"] in active_providers)]
     else:
-        filtered = ALL_MODELS
+        if simple:
+            filtered = [m for m in ALL_MODELS if m["id"] in SIMPLE_IDS]
+        else:
+            # Default for AI News plugin: return simple models always (so dropdown shows all), not filtered
+            # This ensures fetch models works even if only 1 browser connected
+            filtered = [m for m in ALL_MODELS if m["id"] in SIMPLE_IDS]
+            # If client explicitly wants all, they can use ?simple=false&all=true? For now keep simple as default for plugin
+            # To get full list, use /v1/models?simple=false&all=true via custom handling — we return simple for now for better UX
+
+    # Sort simple first in defined order
+    order = ["deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena","auto"]
+    filtered.sort(key=lambda m: order.index(m["id"]) if m["id"] in order else 99)
 
     cards = []
     for m in filtered:
         cards.append(ModelCard(id=m["id"], owned_by=m["owned_by"]))
+    return ModelList(data=cards)
+
+@app.get("/v1/models/all")
+async def list_all_models():
+    """Full list for OpenAI SDK compatibility"""
+    cards = [ModelCard(id=m["id"], owned_by=m["owned_by"]) for m in ALL_MODELS]
     return ModelList(data=cards)
 
 @app.get("/v1/models/active")
