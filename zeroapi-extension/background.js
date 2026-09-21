@@ -205,7 +205,9 @@ async function handleAPIMessage(msg) {
           prompt: msg.prompt,
           stream: !!msg.stream,
           temperature: msg.temperature,
-          max_tokens: msg.max_tokens
+          max_tokens: msg.max_tokens,
+          files: msg.files || msg.images || [],
+          images: msg.images || msg.files || []
         }, (resp) => {
           if (chrome.runtime.lastError) {
             log("Failed to send to tab", chrome.runtime.lastError.message);

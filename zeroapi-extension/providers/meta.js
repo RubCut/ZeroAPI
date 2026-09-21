@@ -465,12 +465,24 @@ const ZSProvider = (() => {
   // contract but not yet exercised live (the test account's message quota was
   // exhausted) - verify with a real screen_capture round-trip.
   function fileFromImage(img, i) {
-    const mime = img.mimeType || "image/jpeg";
-    const bin = atob(img.data);
-    const arr = new Uint8Array(bin.length);
-    for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
-    const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : mime.includes("gif") ? "gif" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    // v2.4: support any file type, preserve filename, handle base64 data
+    const mime = img.mimeType || img.type || "application/octet-stream";
+    const filename = img.filename || img.name || `zeroapi_${Date.now()}_${i}.${(mime.split("/")[-1] || "bin").split(";")[0]}`;
+    let data = img.data || img.file_data || "";
+    // If data is data: URI, extract base64
+    if (data.startsWith("data:")) {
+      const comma = data.indexOf(",");
+      if (comma !== -1) data = data.slice(comma+1);
+    }
+    try {
+      const bin = atob(data);
+      const arr = new Uint8Array(bin.length);
+      for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
+      return new File([arr], filename, { type: mime });
+    } catch (e) {
+      // Fallback: if atob fails, try raw
+      return new File([data], filename, { type: mime });
+    }
   }
   const fileInputEl = () => {
     for (const inp of document.querySelectorAll('input[type="file"]')) {

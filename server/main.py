@@ -1,6 +1,6 @@
 """
 ZeroAPI Server - OpenAI Compatible API Server based on ZeroScript
-v2.2.2 - Active models + test API for AI News plugin / Smartspacer
+v2.4.0 - Active models + test API for AI News plugin / Smartspacer
 """
 
 import asyncio
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=_start, daemon=True).start()
     except Exception as e:
         logger.warning(f"MCP init failed: {e}")
-    logger.info(f"ZeroAPI Server v2.2.2 starting on {HOST}:{PORT}")
+    logger.info(f"ZeroAPI Server v2.4.0 starting on {HOST}:{PORT}")
     yield
     for client in mcp_manager.clients.values():
         try:
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ZeroAPI - OpenAI Compatible Server",
     description="OpenAI-compatible API server powered by browser automation. Site names as model ids: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena.",
-    version="2.2.2",
+    version="2.4.0",
     lifespan=lifespan
 )
 
@@ -89,38 +89,104 @@ def get_provider_for_model(model: str) -> str:
             return prov
     return "auto"
 
+def extract_files_from_content(content) -> tuple[list[str], list[dict]]:
+    """Extract text parts and file parts (image_url, file, input_file) from OpenAI content array"""
+    texts = []
+    files = []
+    if isinstance(content, str):
+        texts.append(content)
+        return texts, files
+    if not isinstance(content, list):
+        return texts, files
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        t = part.get("type")
+        if t == "text":
+            txt = part.get("text","")
+            if txt:
+                texts.append(txt)
+        elif t == "image_url":
+            img = part.get("image_url", {})
+            url = img.get("url","") if isinstance(img, dict) else str(img)
+            if url.startswith("data:"):
+                try:
+                    header, b64 = url.split(",",1)
+                    mime = "image/jpeg"
+                    if ";" in header and ":" in header:
+                        mime = header.split(";")[0].split(":")[1]
+                    ext = mime.split("/")[-1].split(";")[0] or "jpg"
+                    files.append({"data": b64, "mimeType": mime, "filename": f"image_{len(files)}.{ext}", "type": "image"})
+                except Exception as e:
+                    logger.warning(f"Failed to parse image_url data uri: {e}")
+            else:
+                # Remote URL — keep as url for extension to download? For now store url
+                files.append({"url": url, "mimeType": "image/jpeg", "filename": f"image_{len(files)}.jpg", "type": "image"})
+        elif t in ("file", "input_file"):
+            fobj = part.get("file") or part.get("input_file") or {}
+            if isinstance(fobj, dict):
+                filename = fobj.get("filename") or fobj.get("name") or f"file_{len(files)}"
+                file_data = fobj.get("file_data") or fobj.get("data") or fobj.get("url") or ""
+                mime = fobj.get("mime_type") or fobj.get("mimeType") or "application/octet-stream"
+                if file_data.startswith("data:"):
+                    try:
+                        header, b64 = file_data.split(",",1)
+                        if ":" in header:
+                            mime_parsed = header.split(";")[0].split(":")[1]
+                            if mime_parsed:
+                                mime = mime_parsed
+                        files.append({"data": b64, "mimeType": mime, "filename": filename, "type": "file"})
+                    except Exception as e:
+                        logger.warning(f"Failed to parse file data uri: {e}")
+                elif file_data:
+                    # base64 without data: prefix?
+                    files.append({"data": file_data, "mimeType": mime, "filename": filename, "type": "file"})
+        elif t == "document":  # some custom
+            pass
+    return texts, files
+
 def messages_to_prompt(messages: List[ChatMessage]) -> str:
+    prompt, _ = messages_to_prompt_and_files(messages)
+    return prompt
+
+def messages_to_prompt_and_files(messages: List[ChatMessage]) -> tuple[str, list[dict]]:
+    """Returns (prompt_text, files_list) where files are dicts with data/mimeType/filename"""
     if not messages:
-        return ""
+        return "", []
+    all_texts = []
+    all_files = []
+    # Single user message optimization
     if len(messages) == 1 and messages[0].role == "user":
         content = messages[0].content
         if isinstance(content, str):
-            return content
+            return content, []
         elif isinstance(content, list):
-            texts = []
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    texts.append(part.get("text", ""))
-            return "\n".join(texts)
-    parts = []
+            texts, files = extract_files_from_content(content)
+            return "\n".join(texts), files
+
     for msg in messages:
         role = msg.role
         content = msg.content or ""
-        if isinstance(content, list):
-            texts = []
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    texts.append(part.get("text", ""))
-            content = "\n".join(texts)
+        texts, files = extract_files_from_content(content) if isinstance(content, list) else ([content] if isinstance(content, str) else [])
+        # For string content, texts already handled
+        if isinstance(content, str):
+            txt = content
+        else:
+            txt = "\n".join(texts)
+        if files:
+            all_files.extend(files)
         if role == "system":
-            parts.append(f"[System Instructions]: {content}")
+            all_texts.append(f"[System Instructions]: {txt}")
         elif role == "user":
-            parts.append(f"User: {content}")
+            all_texts.append(f"User: {txt}")
         elif role == "assistant":
-            parts.append(f"Assistant: {content}")
+            all_texts.append(f"Assistant: {txt}")
         elif role == "tool":
-            parts.append(f"Tool result: {content}")
-    return "\n\n".join(parts)
+            all_texts.append(f"Tool result: {txt}")
+        else:
+            if txt:
+                all_texts.append(f"{role}: {txt}")
+    return "\n\n".join(all_texts), all_files
 
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
@@ -168,7 +234,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({
                     "type": "registered",
                     "client_id": client_id,
-                    "server": "ZeroAPI v2.2.2",
+                    "server": "ZeroAPI v2.4.0",
                     "message": f"Registered as {client.provider} client"
                 }))
                 continue
@@ -273,7 +339,7 @@ async def dashboard():
     </style>
 </head>
 <body>
-    <h1><span class="logo">⚡</span> ZeroAPI Server v2.2.2 — site names as models</h1>
+    <h1><span class="logo">⚡</span> ZeroAPI Server v2.4.0 — site names as models</h1>
     <p>OpenAI-compatible API. Use <code>model=\"deepseek\"</code> / <code>gemini</code> / <code>chatgpt</code> etc. — simple site names.</p>
     
     <div class="card">
@@ -326,7 +392,7 @@ resp = client.chat.completions.create(
     </div>
 
     <div class="card" style="text-align:center; color:#666; font-size:0.85em;">
-        ZeroAPI v2.2.2 | site names as models: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
+        ZeroAPI v2.4.0 | site names as models: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
         <a href="https://github.com/RubCut/ZeroAPI">GitHub</a> | <a href="/test">Test page</a> | <a href="/v1/models">/v1/models</a> | <a href="/api/active-models">/api/active-models</a>
     </div>
     <script>setTimeout(()=>location.reload(), 5000);</script>
@@ -345,7 +411,7 @@ async def health():
     active_providers = list(get_active_providers())
     return {
         "status": "ok",
-        "version": "2.2.2",
+        "version": "2.4.0",
         "browsers_connected": len(clients),
         "active_providers": active_providers,
         "active_models": [m["id"] for m in ALL_MODELS if m["provider"] in active_providers or m["id"] in active_providers],
@@ -693,7 +759,7 @@ async def handle_chat_completion(request: ChatCompletionRequest) -> Dict[str, An
                 }
             }
         )
-    prompt = messages_to_prompt(request.messages)
+    prompt, files = messages_to_prompt_and_files(request.messages)
     request_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     payload = {
         "type": "chat_request",
@@ -706,8 +772,12 @@ async def handle_chat_completion(request: ChatCompletionRequest) -> Dict[str, An
         "temperature": request.temperature,
         "max_tokens": request.max_tokens,
         "session_id": request.session_id,
+        "files": files,
+        "images": files,
     }
-    logger.info(f"Routing chat request {request_id} model={request.model} provider={provider} -> client {client.id} ({client.provider})")
+    if files:
+        logger.info(f"Request {request_id} has {len(files)} file(s): {[f.get('filename') for f in files]}")
+    logger.info(f"Routing chat request {request_id} model={request.model} provider={provider} files={len(files)} -> client {client.id} ({client.provider})")
     if request.stream:
         return client, request_id, payload
     else:
@@ -759,7 +829,7 @@ async def chat_completions(request: ChatCompletionRequest):
         client = await ws_manager.select_client(provider if provider != "auto" else None)
         if not client:
             raise HTTPException(status_code=503, detail={"error": {"message": f"No browser connected for provider '{provider}'", "type": "service_unavailable", "active": list(get_active_providers())}})
-        prompt = messages_to_prompt(request.messages)
+        prompt, files = messages_to_prompt_and_files(request.messages)
         request_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         payload = {
             "type": "chat_request",
@@ -771,6 +841,8 @@ async def chat_completions(request: ChatCompletionRequest):
             "stream": True,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
+            "files": files,
+            "images": files,
         }
         async def event_generator():
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"

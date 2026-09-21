@@ -583,12 +583,24 @@ const ZSProvider = (() => {
 
   // ── Image attachment (best effort: paste onto the composer) ──────────────
   function fileFromImage(img, i) {
-    const mime = img.mimeType || "image/jpeg";
-    const bin = atob(img.data);
-    const arr = new Uint8Array(bin.length);
-    for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
-    const ext = mime.includes("png") ? "png" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    // v2.4: support any file type, preserve filename, handle base64 data
+    const mime = img.mimeType || img.type || "application/octet-stream";
+    const filename = img.filename || img.name || `zeroapi_${Date.now()}_${i}.${(mime.split("/")[-1] || "bin").split(";")[0]}`;
+    let data = img.data || img.file_data || "";
+    // If data is data: URI, extract base64
+    if (data.startsWith("data:")) {
+      const comma = data.indexOf(",");
+      if (comma !== -1) data = data.slice(comma+1);
+    }
+    try {
+      const bin = atob(data);
+      const arr = new Uint8Array(bin.length);
+      for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
+      return new File([arr], filename, { type: mime });
+    } catch (e) {
+      // Fallback: if atob fails, try raw
+      return new File([data], filename, { type: mime });
+    }
   }
   // The PENDING upload's thumbnail (`.image-thumbnail`, in the composer's
   // `.carousel-scroll`). Kimi ALSO keeps every SENT image's `.image-thumbnail`

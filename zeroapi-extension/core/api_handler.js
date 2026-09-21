@@ -1,6 +1,6 @@
-// ZeroAPI - API Mode Handler v2.1
-// Handles chat requests from ZeroAPI server via browser automation
-// Uses ZSProvider interface, UI is za- prefixed for compatibility with ZeroScript
+// ZeroAPI - API Mode Handler v2.4 - Full file support + auto-clear
+// Supports any file type (images, PDFs, docs, etc.) via OpenAI compatible API
+// Files are cleared from browser composer after each request
 (() => {
   "use strict";
   
@@ -167,6 +167,33 @@
     } catch (e) { console.log("[zeroapi] error send failed", e); }
   }
 
+  function clearAllAttachments() {
+    try {
+      if (typeof ZSProvider !== 'undefined' && ZSProvider.clearAttachments) {
+        ZSProvider.clearAttachments();
+      }
+    } catch (e) {
+      console.log("[zeroapi] clearAttachments failed", e);
+    }
+    // Fallback: try to click remove buttons in composer
+    try {
+      const selectors = [
+        "[aria-label*='Remove']",
+        "[aria-label*='Delete']",
+        "[aria-label*='upprimer']",
+        "[class*='remove-attachment']",
+        "[class*='delete-attachment']",
+        "button[class*='close']"
+      ];
+      document.querySelectorAll(selectors.join(",")).forEach(btn => {
+        const parent = btn.closest("[class*='preview'], [class*='attachment'], [class*='file']");
+        if (parent) {
+          try { btn.click(); } catch {}
+        }
+      });
+    } catch {}
+  }
+
   async function handleChatRequest(request) {
     if (isProcessing) {
       try {
@@ -175,28 +202,47 @@
       return;
     }
 
+    const files = request.files || request.images || [];
     currentRequest = {
       id: request.id,
       stream: !!request.stream,
       cancelled: false,
       prompt: request.prompt || messagesToPrompt(request.messages),
-      model: request.model || "auto"
+      model: request.model || "auto",
+      files: files
     };
 
     updateBarBusy(true, currentRequest.model);
-    console.log(`[zeroapi] Handling ${request.id} model=${currentRequest.model} stream=${currentRequest.stream}`);
-    showIndicator(`API: ${currentRequest.model} - processing...`, true);
+    console.log(`[zeroapi] Handling ${request.id} model=${currentRequest.model} stream=${currentRequest.stream} files=${files.length}`);
+    if (files.length) {
+      console.log(`[zeroapi] Files:`, files.map(f => `${f.filename} (${f.mimeType}, ${f.data ? f.data.length : 0} chars)`));
+      showIndicator(`API: ${currentRequest.model} - uploading ${files.length} file(s)...`, true);
+    } else {
+      showIndicator(`API: ${currentRequest.model} - processing...`, true);
+    }
 
     try {
       const P = await waitForProvider();
       if (P.ensureComposerReady) { try { await P.ensureComposerReady("api"); } catch (e) { console.log("[zeroapi] composer ready failed", e); } }
       const base = P.assistantCount ? P.assistantCount() : 0;
       const prompt = currentRequest.prompt;
-      if (!prompt || !prompt.trim()) throw new Error("Empty prompt");
-      if (P.typeAndSend) await P.typeAndSend(prompt, null);
-      else throw new Error("Provider does not support sending");
+      if (!prompt || !prompt.trim()) {
+        // Allow empty prompt if files present (e.g. "describe this image")
+        if (!files.length) throw new Error("Empty prompt");
+      }
+      if (P.typeAndSend) {
+        // Pass files (any type) to provider's typeAndSend
+        await P.typeAndSend(prompt || " ", files.length ? files : null);
+      } else throw new Error("Provider does not support sending");
 
       const result = await waitForResponse(base, 180000);
+
+      // Clear attachments after successful send — as requested: files should be cleared after insertion
+      // Wait a bit for upload to finish, then clear
+      setTimeout(() => {
+        clearAllAttachments();
+        console.log("[zeroapi] Cleared attachments after request");
+      }, 1000);
 
       if (result.kind === "cancelled") {
         sendError("Cancelled");
@@ -222,16 +268,20 @@
       sendError(e.message || String(e));
       showIndicator(`API: error - ${e.message}`, true);
       setTimeout(() => showIndicator("", false), 4000);
+      // Ensure clear even on error
+      clearAllAttachments();
     } finally {
       updateBarBusy(false, "");
       currentRequest = null;
+      // Final safety clear after 2 seconds
+      setTimeout(clearAllAttachments, 2000);
     }
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "zeroapi-chat-request") {
       handleChatRequest(msg);
-      sendResponse({ ok: true, received: true });
+      sendResponse({ ok: true, received: true, files: (msg.files||[]).length });
       return true;
     }
     if (msg.type === "zeroapi-cancel") {
@@ -256,10 +306,10 @@
 
   setTimeout(() => {
     try {
-      chrome.runtime.sendMessage({ type: "zeroapi-handler-ready", provider: (typeof ZSProvider !== 'undefined' ? ZSProvider.id : "unknown"), url: location.href, version: "2.1.0" });
+      chrome.runtime.sendMessage({ type: "zeroapi-handler-ready", provider: (typeof ZSProvider !== 'undefined' ? ZSProvider.id : "unknown"), url: location.href, version: "2.4.0" });
       apiConnected = true;
     } catch {}
   }, 1500);
 
-  console.log("[zeroapi] API handler v2.1.0 loaded for", location.href);
+  console.log("[zeroapi] API handler v2.4.0 loaded with full file support for", location.href);
 })();
