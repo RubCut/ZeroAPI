@@ -51,16 +51,16 @@ MODEL_PROVIDER_MAP: Dict[str, str] = {
     "llama-3": "meta",
 }
 
-# Reverse map provider -> default model name
+# Reverse map provider -> default model name (simple site names per v2.2.1)
 PROVIDER_DEFAULT_MODEL = {
-    "deepseek": "deepseek-chat",
-    "chatgpt": "gpt-4o",
-    "gemini": "gemini-2.0-flash",
-    "kimi": "kimi-k2",
-    "glm": "glm-4",
-    "qwen": "qwen-turbo",
+    "deepseek": "deepseek",
+    "chatgpt": "chatgpt",
+    "gemini": "gemini",
+    "kimi": "kimi",
+    "glm": "glm",
+    "qwen": "qwen",
     "arena": "arena",
-    "meta": "llama-3",
+    "meta": "meta",
 }
 
 # Provider -> chat domain for routing
@@ -76,7 +76,18 @@ PROVIDER_DOMAINS = {
 }
 
 # All available models for /v1/models endpoint
+# Includes both simple site names (deepseek, gemini, chatgpt) and full names for compatibility
 ALL_MODELS = [
+    # Simple site names — primary (user requested: gemini not gemini-2.0-flash)
+    {"id": "deepseek", "object": "model", "owned_by": "deepseek", "provider": "deepseek"},
+    {"id": "chatgpt", "object": "model", "owned_by": "openai", "provider": "chatgpt"},
+    {"id": "gemini", "object": "model", "owned_by": "google", "provider": "gemini"},
+    {"id": "kimi", "object": "model", "owned_by": "moonshot", "provider": "kimi"},
+    {"id": "glm", "object": "model", "owned_by": "zhipu", "provider": "glm"},
+    {"id": "qwen", "object": "model", "owned_by": "qwen", "provider": "qwen"},
+    {"id": "meta", "object": "model", "owned_by": "meta", "provider": "meta"},
+    {"id": "arena", "object": "model", "owned_by": "arena", "provider": "arena"},
+    # Full names for compatibility
     {"id": "deepseek-chat", "object": "model", "owned_by": "deepseek", "provider": "deepseek"},
     {"id": "deepseek-reasoner", "object": "model", "owned_by": "deepseek", "provider": "deepseek"},
     {"id": "gpt-4o", "object": "model", "owned_by": "openai", "provider": "chatgpt"},
@@ -89,7 +100,6 @@ ALL_MODELS = [
     {"id": "glm-4", "object": "model", "owned_by": "zhipu", "provider": "glm"},
     {"id": "qwen-turbo", "object": "model", "owned_by": "qwen", "provider": "qwen"},
     {"id": "llama-3", "object": "model", "owned_by": "meta", "provider": "meta"},
-    {"id": "arena", "object": "model", "owned_by": "arena", "provider": "arena"},
     # Generic aliases
     {"id": "auto", "object": "model", "owned_by": "zeroapi", "provider": "auto"},
 ]

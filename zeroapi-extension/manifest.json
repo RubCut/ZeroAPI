@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ZeroAPI - OpenAI Compatible Browser Bridge",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into an OpenAI-compatible API server. Use any chat as API. Compatible with ZeroScript.",
   "permissions": ["storage", "tabs", "management"],
   "host_permissions": [
