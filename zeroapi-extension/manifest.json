@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "ZeroAPI - OpenAI Compatible Browser Bridge",
-  "version": "2.0.0",
-  "description": "Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into an OpenAI-compatible API server. Based on ZeroScript.",
-  "permissions": ["storage", "tabs"],
+  "version": "2.1.0",
+  "description": "Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into an OpenAI-compatible API server. Use any chat as API. Compatible with ZeroScript.",
+  "permissions": ["storage", "tabs", "management"],
   "host_permissions": [
     "https://chat.deepseek.com/*",
     "https://deepseek.com/*",
@@ -32,7 +32,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ZeroAPI",
+    "default_title": "ZeroAPI - Click to set active chat",
     "default_icon": {
       "16": "icon.png",
       "48": "icon.png",
@@ -42,7 +42,7 @@
   "content_scripts": [
     {
       "matches": ["https://chat.deepseek.com/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/deepseek.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/deepseek.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     },
@@ -54,37 +54,37 @@
     },
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/chatgpt.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/chatgpt.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://gemini.google.com/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/gemini.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/gemini.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.kimi.ai/*", "https://kimi.ai/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/kimi.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/kimi.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://chat.z.ai/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/glm.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/glm.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://arena.ai/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/arena.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/arena.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.meta.ai/*", "https://meta.ai/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/meta.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/meta.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     },
@@ -96,7 +96,7 @@
     },
     {
       "matches": ["https://chat.qwen.ai/*"],
-      "js": ["core/config.js", "core/parser.js", "providers/qwen.js", "core/main.js", "core/api_handler.js"],
+      "js": ["providers/qwen.js", "core/main.js", "core/api_handler.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     }

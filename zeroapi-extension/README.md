@@ -1,118 +1,108 @@
-# ZeroAPI Extension - OpenAI Compatible Browser Bridge
+# ZeroAPI Extension v2.1 - OpenAI Compatible Browser Bridge
 
-This extension turns ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into an OpenAI-compatible API server.
+Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into an OpenAI-compatible API server. **No Roblox remnants, pure API mode.**
 
-Based on [ZeroScript](https://github.com/sebattfg/ZeroScript-Free) by sebattfg.
+Based on ZeroScript providers, but completely rewritten UI for API usage.
+
+## What changed in v2.1 (by user request)
+
+- **Old Start button → "Use this chat for API"** — click to set this chat tab as active handler for API requests
+- **ZeroScript compatibility** — uses `za-` prefix for DOM (`#za-bar`, `#za-dot`, `#za-api-indicator`) vs ZeroScript's `zs-` prefix. Both extensions can be installed side-by-side, bars stack vertically (ZeroScript on top, ZeroAPI below)
+- **Removed all ZeroScript remnants** — deleted `core/config.js`, `core/parser.js`, test files, Roblox/MCP UI, Ko-fi/Robux buttons. Only API logic remains: `core/main.js` (API bar), `core/api_handler.js` (chat handling), `providers/*.js` (DOM automation)
+- **New popup** — shows available chat tabs, lets you click to activate, no Roblox tools
 
 ## How it works
 
 ```
-OpenAI Client (your app) -> ZeroAPI Server (localhost:8000) -> WebSocket -> Browser Extension -> AI Chat (ChatGPT / DeepSeek / etc.) -> Response back
+Your App (OpenAI SDK) -> ZeroAPI Server (localhost:8000) -> WS -> Extension (za-bar + api_handler) -> AI Chat DOM -> Response
 ```
 
-The extension runs inside the AI chat page. When the server receives an API request, it forwards it to the extension, which types the prompt into the chat and captures the AI's response.
+Extension injects prompt via `ZSProvider.typeAndSend` and reads response via `readAssistant` / `isGenerating`.
 
 ## Setup
 
-### 1. Install dependencies and run server
-
+### 1. Server
 ```bash
 pip install -r ../requirements.txt
 python ../run_server.py
+# Dashboard: http://localhost:8000/
 ```
 
-Or on Windows double-click `start_api.bat`.
+### 2. Extension
+- `chrome://extensions` → Developer mode → Load unpacked → select `zeroapi-extension` folder
+- Open https://chat.deepseek.com (recommended) → bar appears at top: `ZeroAPI v2.1 DeepSeek | Ready | API: ready | [Use this chat for API]`
+- Click **📌 Use this chat for API** → button becomes `✓ Active for API`, badge `● Active for API`
 
-Server will start on http://localhost:8000
-
-### 2. Install extension
-
-- Go to `edge://extensions` or `chrome://extensions`
-- Enable Developer mode
-- Click Load unpacked
-- Select the `zeroapi-extension` folder
-
-### 3. Open AI chat
-
-Go to https://chat.deepseek.com (recommended), https://chatgpt.com, https://gemini.google.com, etc. The extension will auto-connect to the server.
-
-Check popup: should show "API Server: Connected"
-
-### 4. Use OpenAI SDK
-
+### 3. Use SDK
 ```python
 from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://localhost:8000/v1",
-    api_key="zeroapi"
-)
-
-response = client.chat.completions.create(
-    model="deepseek-chat",
-    messages=[{"role": "user", "content": "Hello!"}]
-)
-
-print(response.choices[0].message.content)
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi")
+resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":"Hello!"}])
+print(resp.choices[0].message.content)
 ```
 
-## Models / Provider routing
+## Bar UI
 
-Model name determines which browser tab to use:
+- **Dot**: gray offline, blue ready, green active, yellow pulse busy
+- **State**: "Active for API (DeepSeek)" / "Ready - click to use"
+- **Badge**: API: offline / ready / Active for API / busy
+- **Button**: "Use this chat for API" → sets this tab as preferred in `chrome.storage.local` (`zaActiveTab`) and notifies background. Background routes all requests for that provider to this tab first.
+- **Dashboard link** → http://localhost:8000/
+- **Menu (⋯)**: status, how it works, models for this tab, links to dashboard/docs/models
 
-- `deepseek-chat`, `deepseek-reasoner` -> DeepSeek tab
-- `gpt-4o`, `gpt-4`, `gpt-3.5-turbo`, `chatgpt` -> ChatGPT tab
-- `gemini-2.0-flash`, `gemini-1.5-pro` -> Gemini tab
-- `kimi-k2`, `kimi` -> Kimi tab
-- `glm-4`, `glm` -> GLM tab
-- `qwen-turbo`, `qwen` -> Qwen tab
-- `llama-3`, `meta` -> Meta AI tab
-- `arena` -> Arena tab
-- `auto` -> any available tab
+If ZeroScript is also installed, its `#zs-bar` stays at top:0 (z-index 2147483647), ZeroAPI's `#za-bar` at top:44px (z-index 2147483645) — stacked, no overlap.
 
-If no tab for requested provider is open, it will use any available tab.
+## Popup
 
-## API Endpoints
+- Shows API Server connected/offline
+- Shows active chat (provider + URL)
+- Lists all open chat tabs with provider badges, click to activate
+- Buttons: Use this chat (current tab), Dashboard, Docs, Reconnect
+- Compatibility box: detects ZeroScript extension
 
-- `GET /` - Dashboard
-- `GET /v1/models` - List models
-- `POST /v1/chat/completions` - Chat completions (streaming and non-streaming)
-- `POST /v1/completions` - Text completions
-- `GET /health` - Health check
-- `GET /docs` - Swagger UI
-- `WS /ws` - WebSocket for extension
+## Models / Routing
 
-## Streaming
+Model name → provider → tab:
 
-Supports OpenAI streaming via SSE:
+- `deepseek-chat`, `deepseek-reasoner` → DeepSeek
+- `gpt-4o`, `gpt-4`, `gpt-3.5-turbo` → ChatGPT
+- `gemini-2.0-flash`, `gemini-1.5-pro` → Gemini
+- `kimi-k2`, `kimi` → Kimi
+- `glm-4` → GLM (z.ai)
+- `qwen-turbo` → Qwen
+- `llama-3`, `meta` → Meta AI
+- `arena` → Arena
+- `auto` → any tab (or active tab)
 
-```python
-stream = client.chat.completions.create(
-    model="auto",
-    messages=[{"role": "user", "content": "Count to 5"}],
-    stream=True
-)
+Background prefers active tab (`zaActiveTab`) if set, otherwise first matching provider, otherwise any tab.
 
-for chunk in stream:
-    print(chunk.choices[0].delta.content, end="")
+## Files (clean)
+
+```
+zeroapi-extension/
+  manifest.json (v2.1.0, no parser/config)
+  background.js (API-only, no legacy bridge)
+  overlay.css (za- prefix, coexistence with zs-)
+  popup.html/js (API-only, Use this chat)
+  core/
+    main.js (API bar, 400 lines, not 4000)
+    api_handler.js (chat handling, za- UI)
+  providers/
+    deepseek.js, chatgpt.js, gemini.js, etc. (ZSProvider interface)
 ```
 
-## Legacy Roblox mode
+No `config.js`, `parser.js`, `test-*.js`, no Roblox/MCP/Ko-fi code.
 
-The extension still supports the original ZeroScript Roblox mode alongside API mode. If you also run the legacy bridge (`bridge.py` on 17613), the Roblox agent will work as before.
+## Compatibility with ZeroScript
 
-To run both simultaneously:
-```bash
-python -m server.combined
-```
+Both can be installed:
+- Different extension IDs → separate backgrounds
+- Different DOM prefixes → `zs-` vs `za-` → no ID collision
+- CSS stacking: `body:has(#zs-bar) #za-bar { top:44px }`
+- Storage: ZeroAPI uses `zaActiveTab`, ZeroScript uses `zs*` keys → no overlap
 
-## Troubleshooting
-
-- **No browsers connected**: Open chat.deepseek.com or chatgpt.com with extension installed
-- **API Server offline in popup**: Run `python run_server.py` and keep window open
-- **Timeout**: AI provider may be slow, try again or check browser tab is visible (not minimized)
-- **Model not found**: Use `auto` or check `/v1/models`
+You can have ZeroScript controlling Roblox Studio on one tab and ZeroAPI serving OpenAI requests on another, or even same provider different tabs.
 
 ## License
 
-GPL-3.0 - Based on ZeroScript
+GPL-3.0 — Based on ZeroScript providers by sebattfg. ZeroAPI transformation: OpenAI API layer.

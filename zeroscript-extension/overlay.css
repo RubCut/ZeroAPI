@@ -1119,3 +1119,11 @@ html.zs-light .zs-api-badge.busy {
   background: rgba(251, 191, 36, 0.1);
   color: #d97706;
 }
+
+/* ── ZeroAPI coexistence (v2.1) ── */
+#za-bar { z-index: 2147483645 !important; }
+#zs-bar { z-index: 2147483647 !important; }
+body:has(#za-bar) #zs-bar:not(.zs-bar-inline) { top: 0; }
+body:has(#zs-bar) #za-bar:not(.za-bar-inline) { top: 44px; }
+body:has(#zs-bar) #za-menu { top: 96px; }
+
