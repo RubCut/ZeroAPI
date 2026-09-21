@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ZeroScript Free × Roblox Studio Agent + ZeroAPI",
+  "name": "ZeroAPI - OpenAI Compatible Browser Bridge",
   "version": "2.0.0",
-  "description": "Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into a Roblox Studio agent and OpenAI-compatible API server. Based on ZeroScript.",
+  "description": "Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into an OpenAI-compatible API server. Based on ZeroScript.",
   "permissions": ["storage", "tabs"],
   "host_permissions": [
     "https://chat.deepseek.com/*",
@@ -32,7 +32,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ZeroScript + ZeroAPI",
+    "default_title": "ZeroAPI",
     "default_icon": {
       "16": "icon.png",
       "48": "icon.png",

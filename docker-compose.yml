@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  zeroapi:
+    build: .
+    ports:
+      - "8000:8000"
+      - "17613:17613"  # legacy bridge, optional
+    volumes:
+      - ./config.json:/app/config.json
+      - ./logs:/app/logs
+    environment:
+      - ZEROAPI_PORT=8000
+      - ZEROAPI_HOST=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: legacy bridge for Roblox
+  # bridge:
+  #   build: .
+  #   command: python bridge.py
+  #   ports:
+  #     - "17613:17613"
+  #   volumes:
+  #     - ./config.json:/app/config.json
+  #   restart: unless-stopped

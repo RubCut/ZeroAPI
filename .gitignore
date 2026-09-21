@@ -1,9 +1,8 @@
-﻿# Local-only folders
+# Local-only folders
 Compressed/
 Deprecated/
 ExtensionPresentation/
 presentation/
-docs/
 
 # Zip files
 *.zip
@@ -18,3 +17,22 @@ devtools/
 Thumbs.db
 desktop.ini
 __pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+.env.local
+
+# ZeroAPI specific
+server/__pycache__/
+examples/__pycache__/
+*.log
+dist/
+build/
+node_modules/
+
+# Keep docs for ZeroAPI
+!docs/TRANSFORMATION.md
+!docs/API.md
+

@@ -1019,34 +1019,6 @@ html.zs-light .zs-tip-sub,
 html.zs-light .zs-rbx-cur,
 html.zs-light .zs-tip-sep { color: #6b7280; }
 html.zs-light .zs-tip-rbx { color: #374151; }
-html.zs-light #zs-setup-steps li { color: #374151; }
-html.zs-light #zs-setup-steps li + li { border-top-color: rgba(0, 0, 0, 0.06); }
-html.zs-light #zs-setup-steps li::before { color: #8a8a92; }
-html.zs-light #zs-setup-steps code { background: rgba(0, 0, 0, 0.06); }
-html.zs-light #zs-setup-dismiss { border-color: rgba(0, 0, 0, 0.12); color: #4b5563; }
-html.zs-light #zs-setup-dismiss:hover { background: rgba(0, 0, 0, 0.05); }
-
-/* Menu contents in light theme: neutral grays, subtle surfaces on hover */
-html.zs-light .zs-site-opt { color: #4b5563; }
-html.zs-light .zs-site-name > span:first-child { color: #1f2430; }
-html.zs-light .zs-site-host { color: #9ca3af; }
-html.zs-light button.zs-site-opt:hover { background: rgba(0, 0, 0, 0.05); }
-html.zs-light .zs-site-badge { color: #6b7280; border-color: rgba(0, 0, 0, 0.14); }
-html.zs-light .zs-site-go { color: #9ca3af; }
-html.zs-light #zs-set-save,
-html.zs-light #zs-mcp-add,
-html.zs-light .zs-tip-opt {
-  background: rgba(0, 0, 0, 0.05); color: #1f2430; border-color: rgba(0, 0, 0, 0.12);
-}
-html.zs-light #zs-set-save:hover,
-html.zs-light #zs-mcp-add:hover,
-html.zs-light .zs-tip-opt:hover { background: rgba(0, 0, 0, 0.09); }
-html.zs-light #zs-set-status,
-html.zs-light #zs-mcp-status,
-html.zs-light .zs-tip-sub,
-html.zs-light .zs-rbx-cur,
-html.zs-light .zs-tip-sep { color: #6b7280; }
-html.zs-light .zs-tip-rbx { color: #374151; }
 
 /* ── ZeroAPI specific ─────────────────────────────────────────────────── */
 #zs-dot.api { background: #60a5fa; box-shadow: 0 0 8px #60a5fa; }

@@ -1,0 +1,254 @@
+# ZeroAPI - OpenAI Compatible API Documentation
+
+Base URL: `http://localhost:8000`
+
+## Authentication
+
+API key is optional. You can pass any string as `api_key` or `Authorization: Bearer <key>`.
+
+```python
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="anything")
+```
+
+## Endpoints
+
+### List Models
+
+```http
+GET /v1/models
+```
+
+Response:
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "deepseek-chat", "object": "model", "owned_by": "deepseek"},
+    {"id": "gpt-4o", "object": "model", "owned_by": "openai"}
+  ]
+}
+```
+
+### Chat Completions
+
+```http
+POST /v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "deepseek-chat",
+  "messages": [
+    {"role": "system", "content": "You are helpful"},
+    {"role": "user", "content": "Hello!"}
+  ],
+  "temperature": 0.7,
+  "max_tokens": 500,
+  "stream": false
+}
+```
+
+Non-streaming response (OpenAI format):
+```json
+{
+  "id": "chatcmpl-abc123",
+  "object": "chat.completion",
+  "created": 1234567890,
+  "model": "deepseek-chat",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "Hello! How can I help?"},
+    "finish_reason": "stop"
+  }],
+  "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+}
+```
+
+Streaming request:
+```json
+{
+  "model": "auto",
+  "messages": [{"role": "user", "content": "Count to 5"}],
+  "stream": true
+}
+```
+
+Streaming response (SSE):
+```
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"delta":{"content":"1\n"},"index":0}]}
+
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"delta":{"content":"2\n"},"index":0}]}
+
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"delta":{},"finish_reason":"stop","index":0}]}
+
+data: [DONE]
+```
+
+### Completions (Legacy)
+
+```http
+POST /v1/completions
+{
+  "model": "gpt-4o",
+  "prompt": "Once upon a time",
+  "max_tokens": 100,
+  "stream": false
+}
+```
+
+### Health
+
+```http
+GET /health
+```
+
+```json
+{
+  "status": "ok",
+  "version": "2.0.0",
+  "browsers_connected": 1,
+  "browsers": [{"id": "browser-abc", "provider": "deepseek", "busy": false}],
+  "mcp_servers": []
+}
+```
+
+### Dashboard
+
+```http
+GET /
+```
+
+HTML dashboard with browser status, endpoints, examples. Auto-refreshes every 3s.
+
+## Model Routing
+
+Model name determines which browser tab handles request:
+
+- `deepseek-chat`, `deepseek-reasoner`, `deepseek` -> DeepSeek
+- `gpt-4o`, `gpt-4`, `gpt-3.5-turbo`, `chatgpt`, `o1` -> ChatGPT
+- `gemini-2.0-flash`, `gemini-1.5-pro`, `gemini` -> Gemini
+- `kimi-k2`, `kimi` -> Kimi
+- `glm-4`, `glm` -> GLM (Zhipu)
+- `qwen-turbo`, `qwen` -> Qwen
+- `llama-3`, `meta` -> Meta AI
+- `arena` -> Arena
+- `auto` -> any available
+
+If no tab for requested provider exists, any available tab is used.
+
+You can also force provider via `provider` field (ZeroAPI extension):
+
+```json
+{
+  "model": "gpt-4o",
+  "provider": "deepseek",
+  "messages": [...]
+}
+```
+
+## Error Handling
+
+503 No browser connected:
+```json
+{
+  "detail": {
+    "error": {
+      "message": "No browser connected for provider 'deepseek'...",
+      "type": "service_unavailable",
+      "code": "no_browser_connected"
+    }
+  }
+}
+```
+
+504 Timeout:
+```json
+{"detail": {"error": {"message": "Browser timeout", "type": "timeout"}}}
+```
+
+## WebSocket Protocol (Extension <-> Server)
+
+### Extension -> Server: Register
+
+```json
+{
+  "type": "register",
+  "client_id": "browser-abc123",
+  "provider": "deepseek",
+  "url": "https://chat.deepseek.com/...",
+  "version": "2.0.0"
+}
+```
+
+### Server -> Extension: Chat Request
+
+```json
+{
+  "type": "chat_request",
+  "id": "chatcmpl-xyz",
+  "model": "deepseek-chat",
+  "provider": "deepseek",
+  "prompt": "Hello!",
+  "messages": [{"role": "user", "content": "Hello!"}],
+  "stream": true
+}
+```
+
+### Extension -> Server: Chunk
+
+```json
+{
+  "type": "chat_chunk",
+  "id": "chatcmpl-xyz",
+  "delta": "Hello",
+  "content": "Hello",
+  "done": false
+}
+```
+
+### Extension -> Server: Final Response
+
+```json
+{
+  "type": "chat_response",
+  "id": "chatcmpl-xyz",
+  "content": "Hello! How can I help?",
+  "done": true
+}
+```
+
+### Extension -> Server: Error
+
+```json
+{
+  "type": "chat_error",
+  "id": "chatcmpl-xyz",
+  "error": "Timeout",
+  "done": true
+}
+```
+
+## Client Libraries
+
+Any OpenAI-compatible library works:
+
+- Python `openai`
+- Node `openai`
+- LangChain: `ChatOpenAI(base_url="http://localhost:8000/v1", api_key="x")`
+- OpenWebUI: set OpenAI base URL to `http://localhost:8000/v1`
+- Anything that supports custom base_url
+
+## Limitations
+
+- Browser tab must be visible (not minimized) for reliable operation (Chrome throttles background tabs)
+- Only one request per tab at a time (queued)
+- Temperature, top_p, etc. are not enforced by browser providers (they use their own defaults) - could be added to system prompt
+- No real token counting (estimated)
+- No embeddings, image generation (can be stubbed)
+- Depends on provider's DOM - may break if site redesigns (ZeroScript provider files need update)
+
+## Future
+
+- Tool calling via MCP
+- Session persistence
+- Vision support
+- Auth & rate limiting
