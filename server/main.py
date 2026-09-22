@@ -1,6 +1,6 @@
 """
 ZeroAPI Server - OpenAI Compatible API Server based on ZeroScript
-v2.6.0 - Active models + test API for AI News plugin / Smartspacer
+v2.7.0 - Active models + test API for AI News plugin / Smartspacer
 """
 
 import asyncio
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=_start, daemon=True).start()
     except Exception as e:
         logger.warning(f"MCP init failed: {e}")
-    logger.info(f"ZeroAPI Server v2.6.0 starting on {HOST}:{PORT}")
+    logger.info(f"ZeroAPI Server v2.7.0 starting on {HOST}:{PORT}")
     yield
     for client in mcp_manager.clients.values():
         try:
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ZeroAPI - OpenAI Compatible Server",
     description="OpenAI-compatible API server powered by browser automation. Site names as model ids: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena.",
-    version="2.6.0",
+    version="2.7.0",
     lifespan=lifespan
 )
 
@@ -196,6 +196,58 @@ def messages_to_prompt_and_files(messages: List[ChatMessage]) -> tuple[str, list
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
+def detect_tunnels_server(port):
+    """Detect tunnels on server side - for health endpoint"""
+    tunnels = []
+    # Env vars
+    import re, os
+    for env_key in ["ZEROAPI_TUNNEL_URL", "ZEROAPI_PUBLIC_URL", "TUNNEL_URL", "PUBLIC_URL", "EXTERNAL_URL", "CLOUDFLARE_TUNNEL_URL", "NGROK_URL", "LT_URL"]:
+        url = os.environ.get(env_key, "")
+        if url and url.startswith("https://"):
+            tunnels.append({"name": env_key.lower(), "url": url.strip(), "type": "custom", "provider": "env", "source": env_key})
+    
+    # Config file
+    try:
+        from .config import TUNNEL_URL, PUBLIC_URL
+        if TUNNEL_URL and TUNNEL_URL.startswith("https://") and TUNNEL_URL not in [t["url"] for t in tunnels]:
+            tunnels.append({"name": "config", "url": TUNNEL_URL, "type": "custom", "provider": "config", "source": "config tunnel_url"})
+        if PUBLIC_URL and PUBLIC_URL.startswith("https://") and PUBLIC_URL not in [t["url"] for t in tunnels]:
+            tunnels.append({"name": "public", "url": PUBLIC_URL, "type": "custom", "provider": "config", "source": "config public_url"})
+    except:
+        pass
+    
+    # ngrok API
+    try:
+        import httpx
+        for api_port in [4040, 4041, 4042]:
+            try:
+                r = httpx.get(f"http://127.0.0.1:{api_port}/api/tunnels", timeout=1.0)
+                if r.status_code == 200:
+                    data = r.json()
+                    for t in data.get("tunnels", []):
+                        public_url = t.get("public_url", "")
+                        config = t.get("config", {})
+                        addr = str(config.get("addr", ""))
+                        if public_url.startswith("https://") and (str(port) in addr or len(data.get("tunnels", [])) == 1 or f":{port}" in addr):
+                            if public_url not in [x["url"] for x in tunnels]:
+                                tunnels.append({"name": "ngrok", "url": public_url, "type": "ngrok", "provider": "ngrok", "addr": addr})
+                    if tunnels:
+                        break
+            except:
+                continue
+    except:
+        pass
+    
+    # Deduplicate
+    seen = set()
+    deduped = []
+    for t in tunnels:
+        url = t["url"].rstrip("/")
+        if url not in seen:
+            seen.add(url)
+            deduped.append(t)
+    return deduped
+
 def get_active_providers() -> set:
     clients = ws_manager.get_all_clients()
     return set(c.provider for c in clients)
@@ -239,7 +291,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({
                     "type": "registered",
                     "client_id": client_id,
-                    "server": "ZeroAPI v2.6.0",
+                    "server": "ZeroAPI v2.7.0",
                     "message": f"Registered as {client.provider} client"
                 }))
                 continue
@@ -306,15 +358,48 @@ async def websocket_endpoint(websocket: WebSocket):
 async def dashboard():
     clients = ws_manager.get_all_clients()
     active_models, active_providers, _ = get_active_models_data()
+    tunnels = detect_tunnels_server(PORT)
     
     client_rows = ""
     for c in clients:
         status = "🟢 Busy" if c.busy else "🟢 Ready"
-        client_rows += f"<tr><td>{c.id}</td><td><code>{c.provider}</code></td><td>{status}</td><td>{c.url[:60]}</td><td>{time.strftime('%H:%M:%S', time.localtime(c.last_seen))}</td></tr>"
+        provs = ", ".join(c.providers) if c.providers else c.provider
+        client_rows += f"<tr><td>{c.id}</td><td><code>{provs}</code></td><td>{status}</td><td>{c.url[:60]}</td><td>{time.strftime('%H:%M:%S', time.localtime(c.last_seen))}</td></tr>"
     if not client_rows:
         client_rows = "<tr><td colspan='5' style='text-align:center; color:#888;'>No browsers connected. Install extension and open chat.deepseek.com or chatgpt.com<br>Then click 'Use this chat' in bar</td></tr>"
 
     simple_models = [m for m in ALL_MODELS if m["id"] in {"deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena"}]
+
+    tunnel_html = ""
+    if tunnels:
+        tunnel_rows = "".join(f'<tr><td><span class="badge green">● {t["type"]}</span></td><td><a href="{t["url"]}" target="_blank">{t["url"]}</a></td><td><code>{t["url"]}/v1/chat/completions</code></td><td>{t.get("source","auto")}</td></tr>' for t in tunnels)
+        tunnel_html = f"""
+    <div class="card" style="border-color:#0a2;">
+        <h3>🌐 Active Tunnels — Public URLs (auto-detected)</h3>
+        <p style="color:#6ee7b7;">Your API is publicly accessible via these tunnels! Use them for phone, other devices, or sharing.</p>
+        <table>
+            <tr><th>Type</th><th>Public URL</th><th>API Endpoint</th><th>Source</th></tr>
+            {tunnel_rows}
+        </table>
+        <p style="color:#888; font-size:0.9em;">Set via <code>zeroapi_config.json</code> <code>tunnel_url</code> or env <code>ZEROAPI_TUNNEL_URL</code> or run <code>ngrok http {PORT}</code> / <code>cloudflared tunnel --url http://localhost:{PORT}</code> / <code>lt --port {PORT}</code></p>
+    </div>
+        """
+    else:
+        tunnel_html = f"""
+    <div class="card" style="border-color:#333; opacity:0.8;">
+        <h3>🌐 Tunnels — No public tunnels detected</h3>
+        <p style="color:#888;">Your API is only available locally and via LAN. To make it public:</p>
+        <div style="background:#111; padding:12px; border-radius:6px; font-family:monospace; font-size:0.9em;">
+            ngrok http {PORT}  # auto-detected via http://127.0.0.1:4040<br>
+            cloudflared tunnel --url http://localhost:{PORT}<br>
+            lt --port {PORT}  # localtunnel<br>
+            bore local {PORT} --to bore.pub<br>
+            # Or set in zeroapi_config.json: {{"tunnel_url": "https://xxx.trycloudflare.com"}}<br>
+            # Or env: ZEROAPI_TUNNEL_URL=https://xxx.ngrok.io
+        </div>
+        <p style="margin-top:10px;"><a href="/api/tunnels">Check /api/tunnels for details</a></p>
+    </div>
+        """
 
     html = f"""
 <!DOCTYPE html>
@@ -344,13 +429,15 @@ async def dashboard():
     </style>
 </head>
 <body>
-    <h1><span class="logo">⚡</span> ZeroAPI Server v2.6.0 — site names as models</h1>
-    <p>OpenAI-compatible API. Use <code>model=\"deepseek\"</code> / <code>gemini</code> / <code>chatgpt</code> etc. — simple site names.</p>
+    <h1><span class="logo">⚡</span> ZeroAPI Server v2.7.0 — site names as models + auto-switch + tunnels</h1>
+    <p>OpenAI-compatible API. Use <code>model="deepseek"</code> / <code>gemini</code> / <code>chatgpt</code> etc. — simple site names. Auto-switches tabs when different model requested. Tunnel URLs auto-detected.</p>
     
+    {tunnel_html}
+
     <div class="card">
-        <h3>📡 Connected Browsers ({len(clients)}) — Active providers: {', '.join(active_providers) if active_providers else 'none'}</h3>
+        <h3>📡 Connected Browsers ({len(clients)}) — Active providers: {', '.join(active_providers) if active_providers else 'none'} — Auto-switch: ON</h3>
         <table>
-            <tr><th>ID</th><th>Provider (model id)</th><th>Status</th><th>URL</th><th>Last Seen</th></tr>
+            <tr><th>ID</th><th>Providers (auto-switch)</th><th>Status</th><th>URL</th><th>Last Seen</th></tr>
             {client_rows}
         </table>
     </div>
@@ -361,44 +448,42 @@ async def dashboard():
         <div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">
             {"".join(f'<span class="badge {"green" if m["provider"] in active_providers else ""}"><span class="{"active-dot" if m["provider"] in active_providers else "inactive-dot"}"></span>{m["id"]} → {m["provider"]} {"✅ active" if m["provider"] in active_providers else "○ offline"}</span>' for m in simple_models)}
         </div>
-        <p style="color:#888; font-size:0.9em;">Fetch via <code>GET /v1/models</code> (only active if browsers connected) or <code>GET /api/active-models</code> or <code>GET /zeroapi/&lt;model&gt;</code></p>
+        <p style="color:#888; font-size:0.9em;">Fetch via <code>GET /v1/models</code> or <code>GET /api/active-models</code> or <code>GET /zeroapi/&lt;model&gt;</code> | Auto-switches between tabs when different model requested</p>
     </div>
 
     <div class="card">
         <h3>🔌 API Endpoints — Test & Fetch</h3>
-        <div class="endpoint"><span class="method get">GET</span> <code>/v1/models</code> - List active models (filters to connected browsers)</div>
-        <div class="endpoint"><span class="method get">GET</span> <code>/v1/models/active</code> / <code>/api/active-models</code> - Only active models with status</div>
-        <div class="endpoint"><span class="method get">GET</span> <code>/zeroapi/&lt;model&gt;</code> - Test API for model, e.g. <a href="/zeroapi/deepseek">/zeroapi/deepseek</a>, <a href="/zeroapi/gemini">/zeroapi/gemini</a></div>
+        <div class="endpoint"><span class="method get">GET</span> <code>/v1/models</code> - List active models</div>
+        <div class="endpoint"><span class="method get">GET</span> <code>/api/tunnels</code> - List active tunnels (ngrok, cloudflare, lt) — <a href="/api/tunnels">/api/tunnels</a></div>
+        <div class="endpoint"><span class="method get">GET</span> <code>/v1/models/active</code> / <code>/api/active-models</code> - Only active models</div>
+        <div class="endpoint"><span class="method get">GET</span> <code>/zeroapi/&lt;model&gt;</code> - Test API for model, e.g. <a href="/zeroapi/deepseek">/zeroapi/deepseek</a></div>
         <div class="endpoint"><span class="method get">GET</span> <code>/api/test</code> - Quick test all providers</div>
-        <div class="endpoint"><span class="method">POST</span> <code>/api/test</code> - Test chat: {{"model":"deepseek","prompt":"Hello"}}</div>
+        <div class="endpoint"><span class="method">POST</span> <code>/api/test</code> - Test chat</div>
         <div class="endpoint"><span class="method get">GET</span> <code>/test</code> - Interactive test page</div>
         <div class="endpoint"><span class="method">POST</span> <code>/v1/chat/completions</code> - OpenAI compatible chat</div>
-        <div class="endpoint"><span class="method get">GET</span> <code>/health</code> / <code>/api/status</code> - Status</div>
+        <div class="endpoint"><span class="method get">GET</span> <code>/health</code> - Status with tunnels and auto-switch</div>
     </div>
 
     <div class="card">
         <h3>💻 Usage for AI News Plugin</h3>
-        <pre style="background:#111; padding:15px; border-radius:6px; overflow-x:auto;"><code>// 1. Fetch active models for plugin dropdown
-fetch('http://localhost:{PORT}/api/active-models')
-  .then(r=>r.json()).then(data=>console.log(data.active_models))
+        <pre style="background:#111; padding:15px; border-radius:6px; overflow-x:auto;"><code>// 1. Fetch active models
+fetch('http://localhost:{PORT}/api/active-models').then(r=>r.json()).then(console.log)
 
-// 2. Test API (like zeroapi/deepseek)
-fetch('http://localhost:{PORT}/zeroapi/deepseek')
-  .then(r=>r.json()).then(console.log)
+// 2. Check tunnels
+fetch('http://localhost:{PORT}/api/tunnels').then(r=>r.json()).then(console.log)
+// Returns public_url like https://xxx.trycloudflare.com
 
-// 3. Use as OpenAI API
+// 3. Use as OpenAI API (local or via tunnel)
 import openai
 client = openai.OpenAI(base_url="http://localhost:{PORT}/v1", api_key="x")
-resp = client.chat.completions.create(
-  model="deepseek",  # or gemini, chatgpt, kimi...
-  messages=[{{"role":"user","content":"Summarize news: EU AI Act"}}]
-)
+// Or via tunnel: base_url="https://xxx.trycloudflare.com/v1"
+resp = client.chat.completions.create(model="deepseek", messages=[{{"role":"user","content":"Summarize"}}])
 </code></pre>
     </div>
 
     <div class="card" style="text-align:center; color:#666; font-size:0.85em;">
-        ZeroAPI v2.6.0 | site names as models: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
-        <a href="https://github.com/RubCut/ZeroAPI">GitHub</a> | <a href="/test">Test page</a> | <a href="/v1/models">/v1/models</a> | <a href="/api/active-models">/api/active-models</a>
+        ZeroAPI v2.7.0 | auto-switch + tunnels | site names: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
+        <a href="https://github.com/RubCut/ZeroAPI">GitHub</a> | <a href="/test">Test</a> | <a href="/v1/models">Models</a> | <a href="/api/active-models">Active</a> | <a href="/api/tunnels">Tunnels</a> | <a href="/health">Health</a>
     </div>
     <script>setTimeout(()=>location.reload(), 5000);</script>
 </body>
@@ -414,18 +499,22 @@ async def legacy_status_page():
 async def health():
     clients = ws_manager.get_all_clients()
     active_providers = list(get_active_providers())
-    # Collect all available providers from extension clients (auto-switch)
     all_available_providers = set(active_providers)
     for c in clients:
         for p in c.providers:
             all_available_providers.add(p)
+    tunnels = detect_tunnels_server(PORT)
+    # Also include tunnels reported by clients? No, client tunnels are browser tabs, not server tunnels
     return {
         "status": "ok",
-        "version": "2.6.0",
+        "version": "2.7.0",
         "browsers_connected": len(clients),
         "active_providers": active_providers,
         "available_providers": list(all_available_providers),
         "auto_switch": True,
+        "tunnels": tunnels,
+        "tunnel_urls": [t["url"] for t in tunnels],
+        "public_url": tunnels[0]["url"] if tunnels else None,
         "active_models": [m["id"] for m in ALL_MODELS if m["provider"] in all_available_providers or m["id"] in all_available_providers],
         "browsers": [c.to_dict() for c in clients],
         "mcp_servers": mcp_manager.health(),
@@ -1058,6 +1147,26 @@ async def tool_call(request: Request):
 @app.get("/api/browsers")
 async def list_browsers():
     return {"browsers": [c.to_dict() for c in ws_manager.get_all_clients()], "active_providers": list(get_active_providers())}
+
+@app.get("/api/tunnels")
+async def list_tunnels():
+    tunnels = detect_tunnels_server(PORT)
+    clients = ws_manager.get_all_clients()
+    # Also collect from clients if they reported? No, tunnels are server-side
+    return {
+        "tunnels": tunnels,
+        "count": len(tunnels),
+        "public_url": tunnels[0]["url"] if tunnels else None,
+        "port": PORT,
+        "message": f"{len(tunnels)} tunnel(s) active" if tunnels else "No tunnels detected. Use ngrok http 8000 or cloudflared tunnel --url http://localhost:8000 or set tunnel_url in zeroapi_config.json",
+        "how_to": {
+            "ngrok": f"ngrok http {PORT} (auto-detected via http://127.0.0.1:4040)",
+            "cloudflare": f"cloudflared tunnel --url http://localhost:{PORT}",
+            "localtunnel": f"lt --port {PORT} or npx localtunnel --port {PORT}",
+            "bore": f"bore local {PORT} --to bore.pub",
+            "manual": "Set tunnel_url in zeroapi_config.json or env ZEROAPI_TUNNEL_URL=https://xxx.trycloudflare.com"
+        }
+    }
 
 @app.get("/api/stats")
 async def api_stats():

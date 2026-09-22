@@ -18,6 +18,10 @@ HOST = os.environ.get("ZEROAPI_HOST", _json_cfg.get("host", "0.0.0.0"))
 PORT = int(os.environ.get("ZEROAPI_PORT", str(_json_cfg.get("port", "8000"))))
 WS_PORT = int(os.environ.get("ZEROAPI_WS_PORT", str(_json_cfg.get("port", "8000"))))
 API_KEY = os.environ.get("ZEROAPI_API_KEY", _json_cfg.get("api_key", "zeroapi"))
+TUNNEL_URL = os.environ.get("ZEROAPI_TUNNEL_URL", os.environ.get("TUNNEL_URL", _json_cfg.get("tunnel_url", "")))
+PUBLIC_URL = os.environ.get("ZEROAPI_PUBLIC_URL", os.environ.get("PUBLIC_URL", _json_cfg.get("public_url", "")))
+EXTERNAL_URLS = _json_cfg.get("external_urls", [])
+TUNNEL_AUTO_DETECT = _json_cfg.get("tunnel_auto_detect", True)
 
 # For backward compat
 BRIDGE_PORT = int(os.environ.get("ZS_BRIDGE_PORT", "17613"))
