@@ -127,4 +127,5 @@ ALL_MODELS = [
 
 # Timeouts
 CHAT_TIMEOUT = 180  # seconds for full chat completion
+MCP_TOOL_TIMEOUT = int(os.environ.get("ZEROAPI_MCP_TIMEOUT", _json_cfg.get("mcp_tool_timeout", "120")))  # seconds per MCP tool call
 STREAM_POLL_INTERVAL = 0.2

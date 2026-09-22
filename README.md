@@ -229,6 +229,7 @@ You should see streaming in opencode TUI, and in browser tab you will see messag
 - `No browser connected`: Make sure extension shows Active and server shows Browsers: 1
 - `Timeout`: DeepSeek may be thinking — wait 30s, check browser tab for errors
 - `Model not found`: Check `opencode.json` provider id matches `zeroapi` and model is `deepseek`
+- Tools not running: ZeroAPI translates the browser answer into OpenAI `tool_calls`; if opencode shows the tool JSON as plain text, check `GET /health` -> `browsers_connected` and make sure the tool block is written as a fenced ```json block (see "Tool Calling")
 - Browser tab not typing: Refresh chat.deepseek.com, click `Use this chat` again
 - Want public URL for remote opencode: enable tunnel in `zeroapi_config.json` (see Tunnels section)
 
@@ -253,6 +254,79 @@ from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi", model="deepseek")
 ```
 
+## Tool Calling (function calling)
+
+Browser chats have no native function calling, so ZeroAPI emulates the OpenAI tool
+protocol around them:
+
+1. tool definitions from the request (`tools`) are injected into the prompt that is
+   typed into the browser chat,
+2. the model answers with a fenced JSON block
+   (```json {"name": "bash", "arguments": {"command": "ls"}} ```),
+3. ZeroAPI parses that block server-side and returns real OpenAI `tool_calls`
+   (`finish_reason: "tool_calls"`) instead of leaking the JSON as message content,
+4. the client executes the tool and sends the result back as a `role: "tool"`
+   message; ZeroAPI folds it back into the next prompt as `[Tool result: <name>] ...`.
+
+Works for both `stream: false` and `stream: true` (tool calls are streamed as
+`delta.tool_calls` chunks). Several calls in one answer are supported
+(parallel calls), and `tool_choice: "none" | "auto" | "required" | {"function": ...}`
+is honoured.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi")
+
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "bash",
+        "description": "Run a shell command",
+        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]},
+    },
+}]
+
+resp = client.chat.completions.create(
+    model="deepseek",
+    messages=[{"role": "user", "content": "Which files are in the project?"}],
+    tools=tools,
+)
+print(resp.choices[0].finish_reason)      # tool_calls
+print(resp.choices[0].message.tool_calls) # [bash {"command": "ls"}]
+```
+
+This is what makes agent clients work: opencode, LangChain agents, OpenWebUI tools
+and anything else that sends `tools` and executes the returned calls.
+
+### MCP tools (server-side execution)
+
+ZeroAPI can also expose MCP servers as tools and execute them itself — no client
+support needed. Add the servers to `zeroapi_config.json`:
+
+```json
+{
+  "mcp_servers": {
+    "roblox": { "command": "python", "args": ["roblox_mcp_server.py"] },
+    "files":  { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me"] }
+  },
+  "mcp_tools": {
+    "enabled": true,
+    "auto_execute": true,
+    "max_rounds": 5
+  }
+}
+```
+
+* `GET /api/tools` — raw MCP tool list (name, description, schema, server, health)
+* `GET /v1/tools` — the same tools in OpenAI format, for clients that want to execute them
+* `POST /api/tool/call {"name": ..., "arguments": {...}}` — call one tool directly
+
+When MCP servers are configured, a chat request that carries no client `tools` gets
+the MCP tools injected automatically: the model asks for one, ZeroAPI runs it and
+feeds the result back to the model (up to `max_rounds`), and the client only sees the
+final answer. Client-provided `tools` always take precedence.
+
 ## Configuration
 
 `zeroapi_config.json`:
@@ -276,9 +350,18 @@ llm = ChatOpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi", model="
     "custom_command": "",
     "extra_args": ""
   },
-  "models": ["deepseek", "chatgpt", "gemini", "kimi", "glm", "qwen", "meta", "arena", "auto"]
+  "models": ["deepseek", "chatgpt", "gemini", "kimi", "glm", "qwen", "meta", "arena", "auto"],
+  "mcp_servers": {},
+  "mcp_tools": {
+    "enabled": true,
+    "auto_execute": true,
+    "max_rounds": 5
+  }
 }
 ```
+
+`mcp_servers` / `mcp_tools` are optional — leave them out (or empty) and ZeroAPI runs
+as a plain chat bridge. See "Tool Calling" above for the format.
 
 CLI args:
 
@@ -355,9 +438,12 @@ Use public URL in opencode.json:
 - `POST /api/tunnels/start` — get start command for provider
 - `GET /health` — health, tunnels, providers, auto_switch
 - `GET /api/status` — status
-- `POST /v1/chat/completions` — OpenAI compatible, streaming supported
+- `POST /v1/chat/completions` — OpenAI compatible, streaming supported, tool calling supported
 - `POST /v1/completions` — legacy completions
 - `POST /v1/embeddings` — dummy embeddings (1536 dim)
+- `GET /v1/tools` — MCP tools in OpenAI `tools` format
+- `GET /api/tools` — MCP tools, servers and health
+- `POST /api/tool/call` — execute an MCP tool directly
 
 ## How it Works
 

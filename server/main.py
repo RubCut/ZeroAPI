@@ -17,7 +17,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPExcept
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import HOST, PORT, MODEL_PROVIDER_MAP, ALL_MODELS, PROVIDER_DEFAULT_MODEL, CHAT_TIMEOUT, PROVIDER_DOMAINS
+from .config import HOST, PORT, MODEL_PROVIDER_MAP, ALL_MODELS, PROVIDER_DEFAULT_MODEL, CHAT_TIMEOUT, MCP_TOOL_TIMEOUT, PROVIDER_DOMAINS
 from .openai_models import (
     ModelCard, ModelList, ChatCompletionRequest, ChatCompletionResponse,
     ChatCompletionResponseChoice, ChatMessage, ChatCompletionStreamResponse,
@@ -26,6 +26,15 @@ from .openai_models import (
 )
 from .ws_manager import ws_manager, BrowserClient
 from .mcp_manager import mcp_manager
+from .tool_calling import (
+    build_tool_instructions,
+    parse_tool_calls,
+    tool_choice_mode,
+    tool_names,
+    ToolCallStreamFilter,
+    render_assistant_tool_calls,
+    render_tool_result,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("zeroapi")
@@ -88,6 +97,74 @@ def get_provider_for_model(model: str) -> str:
         if model_lower.startswith(key):
             return prov
     return "auto"
+
+class ToolContext:
+    """Tools offered for one request + how their calls must be handled."""
+
+    def __init__(self, tools: Optional[List[Dict[str, Any]]] = None, block: Optional[str] = None, from_mcp: bool = False):
+        self.tools = tools or []
+        self.block = block
+        self.from_mcp = from_mcp
+
+    @property
+    def active(self) -> bool:
+        return bool(self.block)
+
+    @property
+    def names(self) -> List[str]:
+        return tool_names(self.tools)
+
+    def augment(self, prompt: str) -> str:
+        if not self.block:
+            return prompt
+        return f"{self.block}\n\n{prompt}" if prompt else self.block
+
+
+def prepare_tools(request: ChatCompletionRequest) -> ToolContext:
+    """Decide which tools to offer the browser model for this request.
+
+    * Client-provided ``tools`` are passed through unchanged (opencode, OpenAI
+      SDK, LangChain, ...): the client executes them, ZeroAPI only reports them.
+    * When the client sends no tools but MCP servers are configured, those MCP
+      tools are offered instead and executed by the server itself.
+    """
+    mode, _ = tool_choice_mode(request.tool_choice)
+    if request.tools:
+        if mode == "none":
+            return ToolContext()
+        block = build_tool_instructions(request.tools, request.tool_choice, request.parallel_tool_calls)
+        return ToolContext(request.tools, block or None, from_mcp=False)
+
+    if mcp_manager.auto_execute:
+        mcp_tools = mcp_manager.openai_tools()
+        if mcp_tools:
+            block = build_tool_instructions(mcp_tools, None, None)
+            logger.info(f"Offering {len(mcp_tools)} MCP tool(s) to the browser model")
+            return ToolContext(mcp_tools, block or None, from_mcp=True)
+    return ToolContext()
+
+
+async def execute_mcp_calls(tool_calls: List[Dict[str, Any]]) -> List[str]:
+    """Execute MCP tool calls and return ``[name] -> result`` text blocks."""
+    blocks: List[str] = []
+    for call in tool_calls:
+        fn = call.get("function") or {}
+        name = fn.get("name") or ""
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except Exception:
+            args = {}
+        if not isinstance(args, dict):
+            args = {"input": args}
+        try:
+            result = await asyncio.to_thread(mcp_manager.call, name, args, MCP_TOOL_TIMEOUT)
+            text = (result or {}).get("text", "")
+            logger.info(f"MCP tool {name} executed ({len(text)} chars)")
+        except Exception as e:
+            text = f"ERROR: {e}"
+            logger.warning(f"MCP tool {name} failed: {e}")
+        blocks.append(f"[Tool result: {name}] {text}")
+    return blocks
 
 def extract_files_from_content(content) -> tuple[list[str], list[dict]]:
     """Extract text parts and file parts (image_url, file, input_file) from OpenAI content array"""
@@ -155,6 +232,7 @@ def messages_to_prompt_and_files(messages: List[ChatMessage]) -> tuple[str, list
         return "", []
     all_texts = []
     all_files = []
+    call_names: Dict[str, str] = {}
     # Single user message optimization
     if len(messages) == 1 and messages[0].role == "user":
         content = messages[0].content
@@ -185,9 +263,22 @@ def messages_to_prompt_and_files(messages: List[ChatMessage]) -> tuple[str, list
         elif role == "user":
             all_texts.append(f"User: {txt}")
         elif role == "assistant":
-            all_texts.append(f"Assistant: {txt}")
+            parts = []
+            if txt:
+                parts.append(f"Assistant: {txt}")
+            if msg.tool_calls:
+                for call in msg.tool_calls:
+                    fn = call.get("function") if isinstance(call, dict) else None
+                    if isinstance(fn, dict) and fn.get("name") and call.get("id"):
+                        call_names[str(call["id"])] = str(fn["name"])
+                rendered = render_assistant_tool_calls(msg.tool_calls)
+                if rendered:
+                    parts.append(rendered)
+            if parts:
+                all_texts.append("\n".join(parts))
         elif role == "tool":
-            all_texts.append(f"Tool result: {txt}")
+            name = msg.name or call_names.get(str(msg.tool_call_id or ""))
+            all_texts.append(render_tool_result(name, txt))
         else:
             if txt:
                 all_texts.append(f"{role}: {txt}")
@@ -861,6 +952,10 @@ async def handle_chat_completion(request: ChatCompletionRequest) -> Dict[str, An
             }
         )
     prompt, files = messages_to_prompt_and_files(request.messages)
+    tools = prepare_tools(request)
+    prompt = tools.augment(prompt)
+    if tools.active:
+        logger.info(f"Tool calling enabled: {len(tools.tools)} tool(s) offered to the model (mcp={tools.from_mcp})")
     request_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     payload = {
         "type": "chat_request",
@@ -883,10 +978,48 @@ async def handle_chat_completion(request: ChatCompletionRequest) -> Dict[str, An
         return client, request_id, payload
     else:
         try:
-            result = await ws_manager.send_chat_request(client, request_id, payload, timeout=CHAT_TIMEOUT)
-            if result.get("type") == "chat_error":
-                raise HTTPException(status_code=500, detail={"error": {"message": result.get("error", "Browser error"), "type": "browser_error"}})
-            content = result.get("content", "") or result.get("text", "") or ""
+            content = ""
+            parsed = None
+            # Server-side MCP agent loop: the browser model asks for an MCP tool,
+            # we run it and hand the result back to the model, until it answers.
+            rounds = mcp_manager.max_rounds if (tools.active and tools.from_mcp) else 1
+            for round_no in range(rounds):
+                request_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+                payload["id"] = request_id
+                payload["prompt"] = prompt
+                result = await ws_manager.send_chat_request(client, request_id, payload, timeout=CHAT_TIMEOUT)
+                if result.get("type") == "chat_error":
+                    raise HTTPException(status_code=500, detail={"error": {"message": result.get("error", "Browser error"), "type": "browser_error"}})
+                content = result.get("content", "") or result.get("text", "") or ""
+                parsed = parse_tool_calls(content, tools.tools) if tools.active else None
+                if not (parsed and parsed.has_calls):
+                    parsed = None
+                    break
+                names = [c["function"]["name"] for c in parsed.tool_calls]
+                logger.info(f"Model requested {len(names)} tool call(s): {names}")
+                if not (tools.from_mcp and all(mcp_manager.is_mcp_tool(n) for n in names)):
+                    break
+                blocks = await execute_mcp_calls(parsed.tool_calls)
+                prompt = f"{prompt}\n\nAssistant: {content}\n\n" + "\n\n".join(blocks)
+            if parsed is not None:
+                choice = ChatCompletionResponseChoice(
+                    index=0,
+                    message=ChatMessage(
+                        role="assistant",
+                        content=parsed.message_content(),
+                        tool_calls=parsed.tool_calls,
+                    ),
+                    finish_reason="tool_calls",
+                )
+                return ChatCompletionResponse(
+                    model=request.model,
+                    choices=[choice],
+                    usage={
+                        "prompt_tokens": estimate_tokens(prompt),
+                        "completion_tokens": estimate_tokens(content),
+                        "total_tokens": estimate_tokens(prompt) + estimate_tokens(content),
+                    },
+                ).model_dump()
             choice = ChatCompletionResponseChoice(
                 index=0,
                 message=ChatMessage(role="assistant", content=content),
@@ -931,6 +1064,10 @@ async def chat_completions(request: ChatCompletionRequest):
         if not client:
             raise HTTPException(status_code=503, detail={"error": {"message": f"No browser connected for provider '{provider}'", "type": "service_unavailable", "active": list(get_active_providers())}})
         prompt, files = messages_to_prompt_and_files(request.messages)
+        tools = prepare_tools(request)
+        prompt = tools.augment(prompt)
+        if tools.active:
+            logger.info(f"Tool calling enabled (stream): {len(tools.tools)} tool(s) (mcp={tools.from_mcp})")
         request_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         payload = {
             "type": "chat_request",
@@ -945,92 +1082,131 @@ async def chat_completions(request: ChatCompletionRequest):
             "files": files,
             "images": files,
         }
+
         async def event_generator():
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
             created = int(time.time())
-            full_content = ""
-            try:
-                async for chunk_msg in ws_manager.send_chat_request_stream(client, request_id, payload):
-                    msg_type = chunk_msg.get("type")
-                    if msg_type == "chat_chunk":
-                        delta_text = chunk_msg.get("delta", "") or chunk_msg.get("content", "")
-                        if not delta_text:
-                            continue
-                        if len(delta_text) > len(full_content) and delta_text.startswith(full_content):
-                            new_delta = delta_text[len(full_content):]
-                        else:
-                            new_delta = delta_text
-                        if new_delta:
-                            full_content = delta_text if len(delta_text) > len(full_content) else full_content + new_delta
-                            chunk = ChatCompletionStreamResponse(
-                                id=chat_id,
-                                created=created,
-                                model=request.model,
-                                choices=[ChatCompletionStreamChoice(
-                                    index=0,
-                                    delta=DeltaMessage(content=new_delta),
-                                    finish_reason=None
-                                )]
-                            )
-                            yield f"data: {json.dumps(chunk.model_dump())}\n\n"
-                    elif msg_type == "chat_done":
-                        final_content = chunk_msg.get("content", full_content)
-                        if final_content and len(final_content) > len(full_content):
-                            remaining = final_content[len(full_content):]
-                            if remaining:
-                                chunk = ChatCompletionStreamResponse(
-                                    id=chat_id,
-                                    created=created,
-                                    model=request.model,
-                                    choices=[ChatCompletionStreamChoice(
-                                        index=0,
-                                        delta=DeltaMessage(content=remaining),
-                                        finish_reason=None
-                                    )]
-                                )
-                                yield f"data: {json.dumps(chunk.model_dump())}\n\n"
-                        final_chunk = ChatCompletionStreamResponse(
-                            id=chat_id,
-                            created=created,
-                            model=request.model,
-                            choices=[ChatCompletionStreamChoice(
-                                index=0,
-                                delta=DeltaMessage(),
-                                finish_reason="stop"
-                            )]
-                        )
-                        yield f"data: {json.dumps(final_chunk.model_dump())}\n\n"
-                        yield "data: [DONE]\n\n"
-                        break
-                    elif msg_type == "chat_error":
-                        error_msg = chunk_msg.get("error", "Unknown browser error")
-                        err_chunk = ChatCompletionStreamResponse(
-                            id=chat_id,
-                            created=created,
-                            model=request.model,
-                            choices=[ChatCompletionStreamChoice(
-                                index=0,
-                                delta=DeltaMessage(content=f"Error: {error_msg}"),
-                                finish_reason="stop"
-                            )]
-                        )
-                        yield f"data: {json.dumps(err_chunk.model_dump())}\n\n"
-                        yield "data: [DONE]\n\n"
-                        break
-            except Exception as e:
-                logger.error(f"Streaming error: {e}")
-                err_chunk = ChatCompletionStreamResponse(
+
+            stats = {"chars": 0}
+
+            def sse(delta: DeltaMessage, finish_reason: Optional[str] = None) -> str:
+                if delta.content:
+                    stats["chars"] += len(delta.content)
+                chunk = ChatCompletionStreamResponse(
                     id=chat_id,
                     created=created,
                     model=request.model,
-                    choices=[ChatCompletionStreamChoice(
-                        index=0,
-                        delta=DeltaMessage(content=f"Error: {str(e)}"),
-                        finish_reason="stop"
-                    )]
+                    choices=[ChatCompletionStreamChoice(index=0, delta=delta, finish_reason=finish_reason)],
                 )
-                yield f"data: {json.dumps(err_chunk.model_dump())}\n\n"
+                return f"data: {json.dumps(chunk.model_dump())}\n\n"
+
+            def sse_tool_call(index: int, call: Dict[str, Any], with_meta: bool) -> str:
+                fn = call["function"]
+                entry: Dict[str, Any] = {"index": index}
+                if with_meta:
+                    entry.update({"id": call["id"], "type": "function"})
+                    entry["function"] = {"name": fn["name"], "arguments": ""}
+                else:
+                    entry["function"] = {"arguments": fn["arguments"]}
+                return sse(DeltaMessage(tool_calls=[entry]))
+
+            try:
+                # opening chunk with the assistant role (OpenAI sends this first)
+                yield sse(DeltaMessage(role="assistant", content=""))
+                prompt_text = prompt
+                rounds = mcp_manager.max_rounds if (tools.active and tools.from_mcp) else 1
+                finished = False
+                for _round in range(rounds):
+                    round_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+                    round_payload = dict(payload)
+                    round_payload["id"] = round_id
+                    round_payload["prompt"] = prompt_text
+                    full_content = ""
+                    tool_filter = ToolCallStreamFilter(tools.tools) if tools.active else None
+                    async for chunk_msg in ws_manager.send_chat_request_stream(client, round_id, round_payload):
+                        msg_type = chunk_msg.get("type")
+                        if msg_type == "chat_chunk":
+                            delta_text = chunk_msg.get("delta", "") or chunk_msg.get("content", "")
+                            if not delta_text:
+                                continue
+                            # The extension sends either the cumulative text or a
+                            # real delta - accept both without duplicating text.
+                            if delta_text.startswith(full_content):
+                                new_delta = delta_text[len(full_content):]
+                                full_content = delta_text
+                            else:
+                                new_delta = delta_text
+                                full_content = full_content + delta_text
+                            if not new_delta:
+                                continue
+                            if tool_filter is not None:
+                                # hold back anything that may become a tool call
+                                safe = tool_filter.feed(full_content)
+                                if safe:
+                                    yield sse(DeltaMessage(content=safe))
+                            else:
+                                yield sse(DeltaMessage(content=new_delta))
+                        elif msg_type == "chat_done":
+                            final_content = chunk_msg.get("content") or full_content
+                            if tool_filter is None:
+                                if final_content and len(final_content) > len(full_content):
+                                    remaining = final_content[len(full_content):]
+                                    if remaining:
+                                        yield sse(DeltaMessage(content=remaining))
+                                yield sse(DeltaMessage(), "stop")
+                                finished = True
+                                break
+                            tail, parsed = tool_filter.finish(final_content)
+                            if parsed.has_calls:
+                                names = [c["function"]["name"] for c in parsed.tool_calls]
+                                logger.info(f"Model requested {len(names)} tool call(s) (stream): {names}")
+                                if tools.from_mcp and all(mcp_manager.is_mcp_tool(n) for n in names):
+                                    # run the MCP tools and let the model continue
+                                    blocks = await execute_mcp_calls(parsed.tool_calls)
+                                    prompt_text = f"{prompt_text}\n\nAssistant: {final_content}\n\n" + "\n\n".join(blocks)
+                                    break
+                                if tail:
+                                    yield sse(DeltaMessage(content=tail))
+                                for index, call in enumerate(parsed.tool_calls):
+                                    yield sse_tool_call(index, call, True)
+                                    yield sse_tool_call(index, call, False)
+                                yield sse(DeltaMessage(), "tool_calls")
+                                finished = True
+                                break
+                            if tail:
+                                yield sse(DeltaMessage(content=tail))
+                            yield sse(DeltaMessage(), "stop")
+                            finished = True
+                            break
+                        elif msg_type == "chat_error":
+                            error_msg = chunk_msg.get("error", "Unknown browser error")
+                            yield sse(DeltaMessage(content=f"Error: {error_msg}"), "stop")
+                            finished = True
+                            break
+                    if finished:
+                        break
+                if not finished:
+                    yield sse(DeltaMessage(), "stop")
+                if (request.stream_options or {}).get("include_usage"):
+                    usage_chunk = {
+                        "id": chat_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": request.model,
+                        "choices": [],
+                        "usage": {
+                            "prompt_tokens": estimate_tokens(prompt_text),
+                            "completion_tokens": max(1, stats["chars"] // 4),
+                            "total_tokens": estimate_tokens(prompt_text) + max(1, stats["chars"] // 4),
+                        },
+                    }
+                    yield f"data: {json.dumps(usage_chunk)}\n\n"
                 yield "data: [DONE]\n\n"
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                yield sse(DeltaMessage(content=f"Error: {str(e)}"), "stop")
+                yield "data: [DONE]\n\n"
+
         return StreamingResponse(event_generator(), media_type="text/event-stream")
     else:
         result = await handle_chat_completion(request)
@@ -1238,7 +1414,24 @@ async def api_stats():
 
 @app.get("/api/tools")
 async def list_tools():
-    return {"tools": mcp_manager.list_tools(), "servers": mcp_manager.health()}
+    return {
+        "tools": mcp_manager.list_tools(),
+        "servers": mcp_manager.health(),
+        "enabled": mcp_manager.enabled,
+        "auto_execute": mcp_manager.auto_execute,
+        "errors": mcp_manager.load_errors,
+        "config_hint": "Add \"mcp_servers\": {\"name\": {\"command\": ..., \"args\": [...]}} to zeroapi_config.json",
+    }
+
+@app.get("/v1/tools")
+async def list_tools_openai():
+    """MCP tools in the OpenAI tools format (for clients that can execute them)."""
+    return {
+        "object": "list",
+        "data": mcp_manager.openai_tools(),
+        "servers": mcp_manager.health(),
+        "auto_execute": mcp_manager.auto_execute,
+    }
 
 @app.post("/v1/embeddings")
 async def embeddings(request: Request):

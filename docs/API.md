@@ -237,6 +237,88 @@ Any OpenAI-compatible library works:
 - OpenWebUI: set OpenAI base URL to `http://localhost:8000/v1`
 - Anything that supports custom base_url
 
+## Tool Calling
+
+ZeroAPI implements the OpenAI tools/functions protocol on top of browser chats.
+
+Request (same as OpenAI):
+
+```json
+{
+  "model": "deepseek",
+  "messages": [{"role": "user", "content": "List the files"}],
+  "tools": [{
+    "type": "function",
+    "function": {
+      "name": "bash",
+      "description": "Run a shell command",
+      "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
+    }
+  }],
+  "tool_choice": "auto"
+}
+```
+
+Response:
+
+```json
+{
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "model": "deepseek",
+  "choices": [{
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "I will list the files.",
+      "tool_calls": [{
+        "id": "call_9f2c...",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"command\": \"ls\"}"}
+      }]
+    },
+    "finish_reason": "tool_calls"
+  }],
+  "usage": {"prompt_tokens": 120, "completion_tokens": 14, "total_tokens": 134}
+}
+```
+
+Send the result back exactly like with OpenAI:
+
+```json
+{
+  "model": "deepseek",
+  "messages": [
+    {"role": "user", "content": "List the files"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {"id": "call_9f2c...", "type": "function", "function": {"name": "bash", "arguments": "{\"command\": \"ls\"}"}}
+    ]},
+    {"role": "tool", "tool_call_id": "call_9f2c...", "name": "bash", "content": "server tests README.md"}
+  ]
+}
+```
+
+Notes:
+
+- Streaming is supported: `delta.tool_calls` chunks (id/name first, then arguments)
+  followed by a chunk with `finish_reason: "tool_calls"`.
+- `tool_choice: "none"` disables tools for that request; `"required"` and
+  `{"type": "function", "function": {"name": "..."}}` are honoured in the prompt.
+- `stream_options: {"include_usage": true}` adds a final usage-only chunk.
+- The model is asked to answer with a fenced json block; ZeroAPI strips that block
+  from `content` so clients never see raw tool JSON.
+- MCP: `GET /v1/tools` lists configured MCP tools in OpenAI format, and when a
+  request carries no `tools` while `mcp_servers` are configured, the server injects
+  them and executes the calls itself (`mcp_tools.auto_execute`).
+
+### MCP endpoints
+
+```http
+GET /api/tools                 # raw MCP tools + server health
+GET /v1/tools                  # OpenAI tool definitions
+POST /api/tool/call            # {"name": "echo", "arguments": {"text": "hi"}}
+```
+
 ## Limitations
 
 - Browser tab must be visible (not minimized) for reliable operation (Chrome throttles background tabs)
@@ -248,7 +330,6 @@ Any OpenAI-compatible library works:
 
 ## Future
 
-- Tool calling via MCP
 - Session persistence
 - Vision support
 - Auth & rate limiting
