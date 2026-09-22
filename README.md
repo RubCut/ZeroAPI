@@ -4,7 +4,7 @@
 
 No API keys needed — uses your logged-in browser sessions. Your browser is the engine.
 
-![Version](https://img.shields.io/badge/version-2.7.0-brightgreen)
+![Version](https://img.shields.io/badge/version-2.8.0-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
@@ -16,9 +16,9 @@ No API keys needed — uses your logged-in browser sessions. Your browser is the
 - **Site names as models**: `deepseek`, `chatgpt`, `gemini`, `kimi`, `glm`, `qwen`, `meta`, `arena`, `auto`
 - **File support**: Any file type (images, PDFs, docs) via `image_url` or `file` parts, auto-cleared after insertion
 - **Auto-switch tabs**: When different model requested (e.g. `gemini` but active is `deepseek`), extension auto-switches to matching tab, focuses it, shows toast — configurable in popup
-- **Tunnel detection**: Auto-detects public URLs from ngrok, Cloudflare Tunnel, localtunnel, bore — shows in UI and `/health`
-- **UI mode**: Clears console, huge ZeroAPI status, shows LAN IP + API key + tunnel URLs, press L for logs, T for tunnels
-- **Config file**: `zeroapi_config.json` for ports, keys, models, auto-switch, tunnels
+- **Tunnel detection + auto-start**: Auto-detects public URLs from ngrok, Cloudflare, localtunnel, bore — shows in UI and `/health`; can auto-start tunnel from config `tunnel.enabled=true provider=cloudflare auto_start=true`
+- **UI mode**: Clears console, huge ZeroAPI status, shows LAN IP + API key + tunnel URLs, press L for logs, T for tunnels, S to start/stop tunnel
+- **Config file**: `zeroapi_config.json` for ports, keys, models, auto-switch, tunnels, tunnel autostart
 
 ## Supported Models
 
@@ -50,7 +50,7 @@ UI will show:
  ███████╗███████╗██████╗  ██████╗  █████╗ ██████╗ ██╗
  ...
 
-  STATUS: RUNNING ✅  |  ZeroAPI v2.7.0
+  STATUS: RUNNING ✅  |  ZeroAPI v2.8.0
 
   📡 SERVER:
      Local:  http://localhost:8000
@@ -217,11 +217,32 @@ See `docs/AI_NEWS_PLUGIN_INTEGRATION.md`
 
 ## What's New
 
-### v2.7.0 — Tunnel Detection 🌐
-- Auto-detect ngrok via 4040 API, Cloudflare via logs/process/env/files (trycloudflare.com), localtunnel (loca.lt), bore
+### v2.8.0 — Tunnel Auto-start 🚀 + Detection 🌐
+- **NEW: Auto-start tunnel from config** — set in `zeroapi_config.json` to automatically start tunnel when server starts:
+```json
+{
+  "tunnel": {
+    "enabled": true,
+    "provider": "cloudflare",
+    "auto_start": true,
+    "port": null,
+    "subdomain": "",
+    "custom_command": "",
+    "extra_args": ""
+  }
+}
+```
+  - Providers: `cloudflare` (`cloudflared tunnel --url http://localhost:8000`), `ngrok` (`ngrok http 8000`), `localtunnel` (`lt --port 8000`), `bore` (`bore local 8000 --to bore.pub`), `custom` (your own command)
+  - CLI: `--tunnel-provider cloudflare --tunnel-autostart`
+  - Env: `ZEROAPI_TUNNEL_PROVIDER=cloudflare`
+  - UI: shows `🚀 Starting tunnel: provider=cloudflare port=8000`, `🌐 Tunnel detected: https://xxx.trycloudflare.com`, S key to manually start/stop, T for details, status `starting/running/failed`
+  - Saves URL to `tunnel_url.txt` and `/tmp/cloudflared.log` and env `ZEROAPI_TUNNEL_URL` for auto-detection
+  - Process managed: auto-restart check, stops on Q quit
+  - Server `/api/tunnels` now shows `autostart` config + `POST /api/tunnels/start` to get command
+- **Tunnel Detection** (v2.7.0): auto-detect ngrok via 4040 API, Cloudflare via logs/process/env/files, lt, bore
 - UI shows 🌐 TUNNELS with public URLs + API endpoints, T key for details
 - Dashboard new card with tunnel table, `/api/tunnels` endpoint, `/health` includes tunnels
-- Config `tunnel_url`, `public_url`, `external_urls`, `tunnel_auto_detect`, CLI `--tunnel-url`, env `ZEROAPI_TUNNEL_URL`
+- Config `tunnel_url`, `public_url`, `external_urls`, `tunnel_auto_detect`, CLI `--tunnel-url`
 
 ### v2.6.0 — Auto-switch Tabs
 - Extension auto-switches between tabs when different models required

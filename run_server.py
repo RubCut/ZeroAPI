@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-ZeroAPI Server Runner v2.7.0 - UI Mode with Tunnel Detection
+ZeroAPI Server Runner v2.8.0 - UI Mode with Tunnel Detection + Auto-start
 - Clears console, shows huge ZeroAPI status, IP + key + tunnel URLs
-- Press L to toggle logs, Q to quit
-- Config file: zeroapi_config.json for ports and keys
+- Press L to toggle logs, Q to quit, T for tunnels
+- Config: zeroapi_config.json for ports, keys, tunnel autostart
 - Auto-detects tunnels: Cloudflare, ngrok, localtunnel, bore, etc.
+- Auto-starts tunnel if configured in zeroapi_config.json
 """
 
 import argparse
@@ -40,6 +41,16 @@ DEFAULT_CONFIG = {
     "tunnel_url": "",
     "public_url": "",
     "external_urls": [],
+    "tunnel": {
+        "enabled": False,
+        "provider": "cloudflare",  # cloudflare, ngrok, localtunnel, bore, custom, none
+        "auto_start": False,
+        "port": None,  # None = use main port
+        "subdomain": "",
+        "custom_command": "",
+        "extra_args": "",
+        "url_file": ""
+    },
     "models": ["deepseek", "chatgpt", "gemini", "kimi", "glm", "qwen", "meta", "arena", "auto"]
 }
 
@@ -51,6 +62,11 @@ def load_config():
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             cfg = json.load(f)
         merged = DEFAULT_CONFIG.copy()
+        # Deep merge for tunnel dict
+        if "tunnel" in cfg and isinstance(cfg["tunnel"], dict):
+            tunnel_merged = DEFAULT_CONFIG["tunnel"].copy()
+            tunnel_merged.update(cfg["tunnel"])
+            cfg["tunnel"] = tunnel_merged
         merged.update(cfg)
         return merged
     except Exception as e:
@@ -97,11 +113,14 @@ stop_event = threading.Event()
 current_browsers = 0
 current_providers = []
 current_tunnels = []
+tunnel_process = None
+tunnel_thread = None
+tunnel_detected_url = ""
+tunnel_status = "idle"  # idle, starting, running, failed
 
 # --- Tunnel Detection ---
 
 def detect_ngrok_tunnels(port):
-    """Detect ngrok tunnels via API at 4040"""
     tunnels = []
     try:
         import httpx
@@ -114,9 +133,7 @@ def detect_ngrok_tunnels(port):
                         public_url = t.get("public_url", "")
                         config = t.get("config", {})
                         addr = config.get("addr", "")
-                        # Check if this tunnel forwards to our port
                         if str(port) in str(addr) or f":{port}" in str(addr) or "localhost" in str(addr).lower():
-                            # Prefer https
                             if public_url.startswith("https://"):
                                 tunnels.append({
                                     "name": "ngrok",
@@ -126,18 +143,11 @@ def detect_ngrok_tunnels(port):
                                     "addr": addr,
                                     "proto": t.get("proto", "")
                                 })
-                        # Even if not matching port exactly, show if only one tunnel
-                        elif public_url and not tunnels:
-                            # Check if port in public_url? no, but we can still show as candidate
-                            pass
-                    # If we found matching tunnels, break
                     if tunnels:
                         break
-                    # If no matching but tunnels exist, show all https tunnels as possible
                     for t in data.get("tunnels", []):
                         public_url = t.get("public_url", "")
                         if public_url.startswith("https://"):
-                            # Only add if addr contains our port or if it's the only tunnel
                             config = t.get("config", {})
                             addr = str(config.get("addr", ""))
                             if str(port) in addr or len(data.get("tunnels", [])) == 1:
@@ -158,22 +168,18 @@ def detect_ngrok_tunnels(port):
     return tunnels
 
 def detect_cloudflare_tunnels():
-    """Detect cloudflare tunnels - look for trycloudflare.com URLs in logs and processes"""
     tunnels = []
     patterns = [
         r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com",
         r"https://[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]+\.trycloudflare\.com",
         r"https://[a-zA-Z0-9\-]+\.cfargotunnel\.com",
     ]
-    
-    # Check env vars first
     for env_key in ["CLOUDFLARE_TUNNEL_URL", "CF_TUNNEL_URL", "TUNNEL_URL", "CLOUDFLARED_URL"]:
         url = os.environ.get(env_key, "")
-        if url and "trycloudflare.com" in url or "cfargotunnel.com" in url or "cloudflare" in url.lower():
+        if url and ("trycloudflare.com" in url or "cfargotunnel.com" in url or "cloudflare" in url.lower()):
             if re.match(r"https?://", url):
                 tunnels.append({"name": "cloudflare", "url": url.strip(), "type": "cloudflare", "provider": "cloudflare"})
     
-    # Check common log file locations
     log_paths = [
         "/tmp/cloudflared.log",
         "/tmp/cf.log",
@@ -184,13 +190,12 @@ def detect_cloudflare_tunnels():
         "/tmp/cloudflared/*.log",
         "./*.log",
     ]
-    
     for log_pattern in log_paths:
         try:
             for log_file in glob.glob(log_pattern):
                 try:
                     with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()[-10000:]  # last 10k chars
+                        content = f.read()[-10000:]
                         for pat in patterns:
                             matches = re.findall(pat, content)
                             for m in matches:
@@ -201,7 +206,6 @@ def detect_cloudflare_tunnels():
         except:
             continue
     
-    # Check processes for cloudflared
     try:
         if os.name != 'nt':
             result = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=2)
@@ -213,14 +217,9 @@ def detect_cloudflare_tunnels():
                         for m in matches:
                             if m not in [t["url"] for t in tunnels]:
                                 tunnels.append({"name": "cloudflare", "url": m, "type": "cloudflare", "provider": "cloudflare", "source": "process"})
-                # Also check for cloudflared tunnel --url http://localhost:8000 type
-                if "cloudflared" in line and "tunnel" in line:
-                    # Quick tunnel often shows URL in process args? Not typically, but we can note that cloudflared is running
-                    pass
     except:
         pass
     
-    # Check for tunnel URL files
     tunnel_files = [
         "cloudflare_tunnel_url.txt",
         ".cloudflare_url",
@@ -239,7 +238,6 @@ def detect_cloudflare_tunnels():
                         for m in matches:
                             if m not in [t["url"] for t in tunnels]:
                                 tunnels.append({"name": "cloudflare", "url": m, "type": "cloudflare", "provider": "cloudflare", "source": tf})
-                    # Also check if file itself is a URL
                     if content.startswith("https://") and ("trycloudflare.com" in content or "cfargotunnel" in content):
                         if content not in [t["url"] for t in tunnels]:
                             tunnels.append({"name": "cloudflare", "url": content, "type": "cloudflare", "provider": "cloudflare", "source": tf})
@@ -249,30 +247,23 @@ def detect_cloudflare_tunnels():
     return tunnels
 
 def detect_localtunnel(port):
-    """Detect localtunnel (lt)"""
     tunnels = []
-    # Env vars
     for env_key in ["LT_URL", "LOCALTUNNEL_URL", "LOCAL_TUNNEL_URL"]:
         url = os.environ.get(env_key, "")
         if url and "loca.lt" in url:
             tunnels.append({"name": "localtunnel", "url": url.strip(), "type": "localtunnel", "provider": "localtunnel"})
-    
-    # Check process
     try:
         if os.name != 'nt':
             result = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=2)
             output = result.stdout
             for line in output.split("\n"):
                 if "localtunnel" in line or " lt " in line or "/lt" in line:
-                    # lt often shows URL like https://xxx.loca.lt
                     matches = re.findall(r"https://[a-zA-Z0-9\-]+\.loca\.lt", line)
                     for m in matches:
                         if m not in [t["url"] for t in tunnels]:
                             tunnels.append({"name": "localtunnel", "url": m, "type": "localtunnel", "provider": "localtunnel"})
     except:
         pass
-    
-    # Check files
     for tf in ["localtunnel_url.txt", "/tmp/lt_url", "./lt_url.txt"]:
         try:
             if os.path.exists(tf):
@@ -287,29 +278,28 @@ def detect_localtunnel(port):
                             tunnels.append({"name": "localtunnel", "url": content, "type": "localtunnel", "provider": "localtunnel"})
         except:
             continue
-    
     return tunnels
 
 def detect_generic_tunnels(port, cfg):
-    """Detect generic tunnels from config and env and files"""
     tunnels = []
-    
-    # From config
     cfg_tunnel = cfg.get("tunnel_url", "") or cfg.get("public_url", "") or cfg.get("external_url", "")
     if cfg_tunnel and cfg_tunnel.startswith("https://"):
         tunnels.append({"name": "custom", "url": cfg_tunnel.strip(), "type": "custom", "provider": "custom", "source": "config"})
-    
     for url in cfg.get("external_urls", []):
         if url and url.startswith("https://") and url not in [t["url"] for t in tunnels]:
             tunnels.append({"name": "custom", "url": url.strip(), "type": "custom", "provider": "custom", "source": "config external_urls"})
+    # Also check nested tunnel config
+    tunnel_cfg = cfg.get("tunnel", {})
+    if isinstance(tunnel_cfg, dict):
+        nested_url = tunnel_cfg.get("url", "") or tunnel_cfg.get("tunnel_url", "") or tunnel_cfg.get("public_url", "")
+        if nested_url and nested_url.startswith("https://") and nested_url not in [t["url"] for t in tunnels]:
+            tunnels.append({"name": "tunnel-config", "url": nested_url.strip(), "type": "custom", "provider": "custom", "source": "tunnel.url"})
     
-    # Env vars
     for env_key in ["ZEROAPI_TUNNEL_URL", "ZEROAPI_PUBLIC_URL", "TUNNEL_URL", "PUBLIC_URL", "EXTERNAL_URL", "API_PUBLIC_URL"]:
         url = os.environ.get(env_key, "")
         if url and url.startswith("https://") and url not in [t["url"] for t in tunnels]:
             tunnels.append({"name": "env", "url": url.strip(), "type": "custom", "provider": "env", "source": env_key})
     
-    # Files
     generic_files = [
         "tunnel_url.txt", ".tunnel_url", "public_url.txt", ".public_url",
         "/tmp/tunnel_url", "/tmp/public_url", "/tmp/zeroapi_tunnel",
@@ -320,60 +310,38 @@ def detect_generic_tunnels(port, cfg):
             if os.path.exists(tf):
                 with open(tf, 'r') as f:
                     content = f.read().strip()
-                    # Find all https URLs
                     urls = re.findall(r"https://[^\s\"']+", content)
                     for url in urls:
-                        # Clean trailing punctuation
                         url = url.rstrip(".,;!\"')]")
                         if url not in [t["url"] for t in tunnels] and len(url) > 10:
                             tunnels.append({"name": "file", "url": url, "type": "custom", "provider": "file", "source": tf})
         except:
             continue
     
-    # Check bore, localhost.run, etc. via processes
     try:
         if os.name != 'nt':
             result = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=2)
             output = result.stdout.lower()
-            # bore
             if "bore" in output:
                 matches = re.findall(r"https://[a-zA-Z0-9\-]+\.bore\.pub", output)
                 for m in matches:
                     if m not in [t["url"] for t in tunnels]:
                         tunnels.append({"name": "bore", "url": m, "type": "bore", "provider": "bore"})
-            # localhost.run
-            if "localhost.run" in output or "ssh" in output and "8000:localhost" in output:
-                # localhost.run tunnels are harder to detect URL, but we can note
-                pass
     except:
         pass
     
     return tunnels
 
 def detect_tunnels(port, cfg=None):
-    """Main detection function - returns list of tunnels"""
     if cfg is None:
         cfg = load_config()
-    
     if not cfg.get("tunnel_auto_detect", True):
-        # Only use manual config
         return detect_generic_tunnels(port, cfg)
-    
     all_tunnels = []
-    
-    # 1. Config and env generic
     all_tunnels.extend(detect_generic_tunnels(port, cfg))
-    
-    # 2. ngrok
     all_tunnels.extend(detect_ngrok_tunnels(port))
-    
-    # 3. Cloudflare
     all_tunnels.extend(detect_cloudflare_tunnels())
-    
-    # 4. Localtunnel
     all_tunnels.extend(detect_localtunnel(port))
-    
-    # Deduplicate by URL
     seen = set()
     deduped = []
     for t in all_tunnels:
@@ -381,8 +349,225 @@ def detect_tunnels(port, cfg=None):
         if url not in seen:
             seen.add(url)
             deduped.append(t)
-    
     return deduped
+
+# --- Tunnel Auto-start ---
+
+def build_tunnel_command(cfg, port):
+    """Build tunnel command from config"""
+    tunnel_cfg = cfg.get("tunnel", {})
+    if not isinstance(tunnel_cfg, dict):
+        tunnel_cfg = {}
+    
+    provider = tunnel_cfg.get("provider", cfg.get("tunnel_provider", "cloudflare")).lower()
+    tunnel_port = tunnel_cfg.get("port") or cfg.get("tunnel_port") or port
+    subdomain = tunnel_cfg.get("subdomain", "") or cfg.get("tunnel_subdomain", "")
+    extra_args = tunnel_cfg.get("extra_args", "") or cfg.get("tunnel_extra_args", "")
+    custom_cmd = tunnel_cfg.get("custom_command", "") or tunnel_cfg.get("command", "") or cfg.get("tunnel_command", "")
+    
+    if provider == "custom" and custom_cmd:
+        return custom_cmd
+    
+    if provider == "cloudflare":
+        # cloudflared tunnel --url http://localhost:8000
+        cmd = f"cloudflared tunnel --url http://localhost:{tunnel_port}"
+        if extra_args:
+            cmd += f" {extra_args}"
+        return cmd
+    
+    elif provider == "ngrok":
+        # ngrok http 8000
+        cmd = f"ngrok http {tunnel_port}"
+        if subdomain:
+            cmd += f" --subdomain={subdomain}"
+        if extra_args:
+            cmd += f" {extra_args}"
+        return cmd
+    
+    elif provider in ("localtunnel", "lt"):
+        # lt --port 8000 --subdomain mysub
+        # Try npx if lt not installed
+        cmd = f"lt --port {tunnel_port}"
+        if subdomain:
+            cmd += f" --subdomain {subdomain}"
+        if extra_args:
+            cmd += f" {extra_args}"
+        return cmd
+    
+    elif provider == "bore":
+        # bore local 8000 --to bore.pub
+        cmd = f"bore local {tunnel_port} --to bore.pub"
+        if extra_args:
+            cmd += f" {extra_args}"
+        return cmd
+    
+    elif provider in ("none", "", "disabled"):
+        return None
+    
+    else:
+        # Unknown provider, treat as custom
+        if custom_cmd:
+            return custom_cmd
+        return None
+
+def tunnel_output_reader(proc, port):
+    """Read tunnel process output and detect URL"""
+    global tunnel_detected_url, tunnel_status
+    url_patterns = [
+        r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com",
+        r"https://[a-zA-Z0-9\-]+\.cfargotunnel\.com",
+        r"https://[a-zA-Z0-9\-]+\.ngrok\.io",
+        r"https://[a-zA-Z0-9\-]+\.ngrok-free\.app",
+        r"https://[a-zA-Z0-9\-]+\.loca\.lt",
+        r"https://[a-zA-Z0-9\-]+\.bore\.pub",
+        r"https://[^\s]+\.trycloudflare\.com",
+        r"https://[^\s]+\.loca\.lt",
+        r"https://[^\s]+\.ngrok\.io",
+    ]
+    
+    try:
+        # Read both stdout and stderr
+        while True:
+            if proc.poll() is not None:
+                break
+            
+            # Try to read line from stdout
+            try:
+                # Use select for non-blocking?
+                line = proc.stdout.readline() if proc.stdout else ""
+                if not line and proc.stderr:
+                    line = proc.stderr.readline()
+            except:
+                line = ""
+            
+            if not line:
+                time.sleep(0.5)
+                continue
+            
+            line_str = line.decode('utf-8', errors='ignore') if isinstance(line, bytes) else str(line)
+            
+            # Check for URLs
+            for pat in url_patterns:
+                matches = re.findall(pat, line_str)
+                for m in matches:
+                    url = m.rstrip(".,;!\"')]")
+                    if url not in [t["url"] for t in detect_tunnels(port)]:
+                        tunnel_detected_url = url
+                        tunnel_status = "running"
+                        # Save to file for detection
+                        try:
+                            with open("/tmp/cloudflared.log", "a") as f:
+                                f.write(f"\n{tunnel_detected_url}\n")
+                            with open("tunnel_url.txt", "w") as f:
+                                f.write(tunnel_detected_url)
+                            # Also set env for server detection
+                            os.environ["ZEROAPI_TUNNEL_URL"] = tunnel_detected_url
+                        except:
+                            pass
+                        print(f"\n[zeroapi] 🌐 Tunnel detected: {url}\n")
+            
+            # Also log if enabled
+            if log_enabled:
+                print(f"[tunnel] {line_str.strip()}")
+                
+    except Exception as e:
+        print(f"[zeroapi] Tunnel reader error: {e}")
+        tunnel_status = "failed"
+
+def start_tunnel_from_config(cfg):
+    """Auto-start tunnel based on config"""
+    global tunnel_process, tunnel_thread, tunnel_status, tunnel_detected_url
+    
+    tunnel_cfg = cfg.get("tunnel", {})
+    if not isinstance(tunnel_cfg, dict):
+        tunnel_cfg = {}
+    
+    enabled = tunnel_cfg.get("enabled", False) or tunnel_cfg.get("auto_start", False) or cfg.get("tunnel_enabled", False) or cfg.get("tunnel_auto_start", False)
+    
+    if not enabled:
+        return None
+    
+    provider = tunnel_cfg.get("provider", cfg.get("tunnel_provider", "cloudflare"))
+    if not provider or provider in ("none", "disabled"):
+        return None
+    
+    port = tunnel_cfg.get("port") or cfg.get("tunnel_port") or cfg.get("port", 8000)
+    command = build_tunnel_command(cfg, port)
+    
+    if not command:
+        print(f"[zeroapi] Tunnel enabled but no command for provider {provider}")
+        return None
+    
+    print(f"[zeroapi] 🚀 Starting tunnel: provider={provider} port={port}")
+    print(f"[zeroapi] Command: {command}")
+    
+    tunnel_status = "starting"
+    
+    try:
+        # Split command for Popen, but keep shell for complex commands
+        if " " in command and not command.startswith("npx"):
+            # Use shell for simplicity
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                universal_newlines=False
+            )
+        else:
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT
+            )
+        
+        tunnel_process = proc
+        
+        # Start reader thread
+        t = threading.Thread(target=tunnel_output_reader, args=(proc, port), daemon=True)
+        t.start()
+        tunnel_thread = t
+        
+        # Wait a bit and check if process still alive
+        time.sleep(2)
+        if proc.poll() is not None:
+            # Process died quickly, maybe command not found, try alternative
+            print(f"[zeroapi] Tunnel process exited quickly with code {proc.poll()}, trying alternative...")
+            # Try npx for lt/cloudflared
+            if provider in ("localtunnel", "lt") and not command.startswith("npx"):
+                alt_cmd = f"npx localtunnel --port {port}"
+                print(f"[zeroapi] Trying alternative: {alt_cmd}")
+                proc = subprocess.Popen(alt_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                tunnel_process = proc
+                t = threading.Thread(target=tunnel_output_reader, args=(proc, port), daemon=True)
+                t.start()
+                tunnel_thread = t
+                time.sleep(2)
+        
+        print(f"[zeroapi] Tunnel process started PID={proc.pid} status={tunnel_status}")
+        return proc
+        
+    except Exception as e:
+        print(f"[zeroapi] Failed to start tunnel: {e}")
+        tunnel_status = "failed"
+        return None
+
+def stop_tunnel():
+    global tunnel_process, tunnel_status
+    if tunnel_process:
+        try:
+            tunnel_process.terminate()
+            try:
+                tunnel_process.wait(timeout=3)
+            except:
+                tunnel_process.kill()
+            print("[zeroapi] Tunnel stopped")
+        except:
+            pass
+        tunnel_process = None
+    tunnel_status = "idle"
 
 def fetch_server_status(port):
     global current_browsers, current_providers, current_tunnels
@@ -398,7 +583,7 @@ def fetch_server_status(port):
         pass
 
 def ui_loop(cfg):
-    global log_enabled, current_tunnels
+    global log_enabled, current_tunnels, tunnel_detected_url, tunnel_status
     log_enabled = cfg.get("log_enabled", False)
     port = cfg.get("port", 8000)
     host = cfg.get("host", "0.0.0.0")
@@ -436,18 +621,18 @@ def ui_loop(cfg):
             except Exception as e:
                 detected_tunnels = []
             last_tunnel_check = time.time()
-            # Merge with server-reported tunnels
             if current_tunnels:
-                # Add server tunnels that are not in detected
                 for st in current_tunnels:
                     url = st.get("url") if isinstance(st, dict) else str(st)
                     if url not in [t["url"] for t in detected_tunnels]:
                         detected_tunnels.append({"name": st.get("name", "server"), "url": url, "type": st.get("type", "unknown"), "provider": st.get("provider", "unknown")})
+            if tunnel_detected_url and tunnel_detected_url not in [t["url"] for t in detected_tunnels]:
+                detected_tunnels.append({"name": "autostart", "url": tunnel_detected_url, "type": "auto", "provider": "autostart", "source": "autostart tunnel"})
 
         clear_console()
         print(get_ascii_art())
         print(f"\033[1;36m{'='*62}\033[0m")
-        print(f"\033[1;32m  STATUS: RUNNING ✅  |  ZeroAPI v2.7.0 - OpenAI Compatible API\033[0m")
+        print(f"\033[1;32m  STATUS: RUNNING ✅  |  ZeroAPI v2.8.0 - OpenAI Compatible API\033[0m")
         print(f"\033[1;36m{'='*62}\033[0m")
         print()
         print(f"  \033[1;33m📡 SERVER:\033[0m")
@@ -463,6 +648,18 @@ def ui_loop(cfg):
                 typ = tun.get("type", "")
                 print(f"     \033[1;32m●\033[0m \033[1;37m{url}\033[0m  \033[0;90m({typ} - {name})\033[0m")
                 print(f"       API: \033[0;90m{url}/v1/chat/completions\033[0m")
+            if tunnel_status == "starting":
+                print(f"     \033[1;33m⏳ Tunnel starting... ({tunnel_status})\033[0m")
+            elif tunnel_status == "running" and tunnel_detected_url:
+                print(f"     \033[1;32m✅ Tunnel running: {tunnel_detected_url}\033[0m")
+        else:
+            tunnel_cfg = cfg.get("tunnel", {})
+            if tunnel_cfg.get("enabled") or tunnel_cfg.get("auto_start"):
+                print()
+                print(f"  \033[1;33m🌐 TUNNEL:\033[0m  \033[1;33m{ tunnel_status } — {tunnel_cfg.get('provider','?')} autostart enabled, waiting for URL...\033[0m")
+            else:
+                print()
+                print(f"  \033[0;90m🌐 TUNNEL: none — set tunnel.enabled=true in config to autostart\033[0m")
         print()
         print(f"  \033[1;33m🔑 API KEY:\033[0m  \033[1;37m{api_key}\033[0m  \033[0;90m(any string works)\033[0m")
         print()
@@ -475,7 +672,7 @@ def ui_loop(cfg):
             dot = "\033[1;32m●\033[0m" if is_active else "\033[0;90m○\033[0m"
             status = "\033[1;32mactive\033[0m" if is_active else "\033[0;90moffline\033[0m"
             print(f"     {dot} \033[1;37m{m:<10}\033[0m {status}  \033[0;90m→ /zeroapi/{m}\033[0m")
-        print(f"     \033[0;90mAuto: {current_browsers} browsers, {len(current_providers)} providers active, auto-switch ON\033[0m")
+        print(f"     \033[0;90mAuto: {current_browsers} browsers, {len(current_providers)} providers, auto-switch ON\033[0m")
         print()
         print(f"  \033[1;33m🔌 ENDPOINTS:\033[0m")
         print(f"     Dashboard:  http://localhost:{port}/")
@@ -492,11 +689,11 @@ def ui_loop(cfg):
         print(f"  \033[1;33m📝 LOGS:\033[0m  {logs_status}  \033[0;90m(Press L to toggle)\033[0m")
         print()
         print(f"\033[1;36m{'='*62}\033[0m")
-        print(f"  \033[1;37m[L]\033[0m Toggle logs  |  \033[1;37m[C]\033[0m Clear  |  \033[1;37m[Q]\033[0m Quit  |  \033[1;37m[R]\033[0m Reload  |  \033[1;37m[T]\033[0m Show tunnels")
+        print(f"  \033[1;37m[L]\033[0m Toggle logs  |  \033[1;37m[C]\033[0m Clear  |  \033[1;37m[Q]\033[0m Quit  |  \033[1;37m[R]\033[0m Reload  |  \033[1;37m[T]\033[0m Tunnels  |  \033[1;37m[S]\033[0m Start tunnel")
         print(f"\033[1;36m{'='*62}\033[0m")
         print()
         print(f"  \033[0;90mExtension: zeroapi-extension/ in chrome://extensions (Developer mode)\033[0m")
-        print(f"  \033[0;90mTunnel: set tunnel_url in zeroapi_config.json or use ngrok/cloudflared/lt\033[0m")
+        print(f"  \033[0;90mTunnel autostart: set tunnel.enabled=true, provider=cloudflare/ngrok/lt in config\033[0m")
         print()
 
         key = None
@@ -533,15 +730,30 @@ def ui_loop(cfg):
                 logging.getLogger("uvicorn").setLevel(logging.INFO if log_enabled else logging.WARNING)
             elif key == 'q':
                 stop_event.set()
-                print("\n\033[1;33mShutting down...\033[0m")
+                stop_tunnel()
+                print("\n\033[1;33mShutting down... (stopping tunnel)\033[0m")
                 os._exit(0)
             elif key == 'c':
                 clear_console()
             elif key == 'r':
                 cfg = load_config()
                 log_enabled = cfg.get("log_enabled", False)
+            elif key == 's':
+                # Manual start tunnel
+                if tunnel_process and tunnel_process.poll() is None:
+                    print("\n\033[1;33mTunnel already running, stopping...\033[0m")
+                    stop_tunnel()
+                    time.sleep(1)
+                else:
+                    print("\n\033[1;33mStarting tunnel manually...\033[0m")
+                    # Enable tunnel if not enabled
+                    if not cfg.get("tunnel", {}).get("enabled"):
+                        cfg["tunnel"]["enabled"] = True
+                        cfg["tunnel"]["auto_start"] = True
+                        save_config(cfg)
+                    start_tunnel_from_config(cfg)
+                    time.sleep(2)
             elif key == 't':
-                # Show tunnels detailed
                 clear_console()
                 print(get_ascii_art())
                 print("\n  🌐 TUNNEL DETAILS:\n")
@@ -552,13 +764,26 @@ def ui_loop(cfg):
                         print(f"  API: {tun.get('url')}/v1/chat/completions")
                         print(f"  Source: {tun.get('source', 'auto-detected')}")
                         print()
+                    if tunnel_process:
+                        print(f"  Process: PID={tunnel_process.pid} Status={tunnel_status} Running={tunnel_process.poll() is None}")
                 else:
                     print("  No tunnels detected.")
                     print("  To add tunnel:")
-                    print("  - ngrok: ngrok http 8000 (auto-detected via http://127.0.0.1:4040)")
-                    print("  - cloudflare: cloudflared tunnel --url http://localhost:8000")
-                    print("  - localtunnel: lt --port 8000")
-                    print("  - Or set in zeroapi_config.json: {\"tunnel_url\": \"https://xxx.trycloudflare.com\"}")
+                    print("  - Auto-start via config: set tunnel.enabled=true, provider=cloudflare")
+                    print("    Example zeroapi_config.json:")
+                    print('    {')
+                    print('      "tunnel": {')
+                    print('        "enabled": true,')
+                    print('        "provider": "cloudflare",')
+                    print('        "auto_start": true')
+                    print('      }')
+                    print('    }')
+                    print()
+                    print("  - Manual:")
+                    print(f"  - ngrok: ngrok http {port}")
+                    print(f"  - cloudflare: cloudflared tunnel --url http://localhost:{port}")
+                    print(f"  - localtunnel: lt --port {port}")
+                    print("  - Or set tunnel_url: {\"tunnel_url\": \"https://xxx.trycloudflare.com\"}")
                     print("  - Or env: ZEROAPI_TUNNEL_URL=https://xxx.ngrok.io")
                     print()
                 print("  Press any key to continue...")
@@ -588,11 +813,15 @@ def run_uvicorn(cfg):
     os.environ["ZEROAPI_HOST"] = host
     os.environ["ZEROAPI_PORT"] = str(port)
     os.environ["ZEROAPI_API_KEY"] = cfg.get("api_key", "zeroapi")
-    # Pass tunnel URL if configured
     if cfg.get("tunnel_url"):
         os.environ["ZEROAPI_TUNNEL_URL"] = cfg.get("tunnel_url")
     if cfg.get("public_url"):
         os.environ["ZEROAPI_PUBLIC_URL"] = cfg.get("public_url")
+    
+    # Handle nested tunnel config
+    tunnel_cfg = cfg.get("tunnel", {})
+    if isinstance(tunnel_cfg, dict) and tunnel_cfg.get("url"):
+        os.environ["ZEROAPI_TUNNEL_URL"] = tunnel_cfg.get("url")
 
     uvicorn.run(
         "server.main:app",
@@ -603,11 +832,13 @@ def run_uvicorn(cfg):
     )
 
 def main():
-    parser = argparse.ArgumentParser(description="ZeroAPI - OpenAI Compatible Server v2.7.0 with tunnel detection")
+    parser = argparse.ArgumentParser(description="ZeroAPI - OpenAI Compatible Server v2.8.0 with tunnel autostart")
     parser.add_argument("--host", help="Host to bind")
     parser.add_argument("--port", type=int, help="Port to bind")
     parser.add_argument("--api-key", help="API key")
-    parser.add_argument("--tunnel-url", help="Public tunnel URL (e.g. https://xxx.trycloudflare.com)")
+    parser.add_argument("--tunnel-url", help="Public tunnel URL")
+    parser.add_argument("--tunnel-provider", help="Tunnel provider: cloudflare, ngrok, localtunnel, bore, custom")
+    parser.add_argument("--tunnel-autostart", action="store_true", help="Auto-start tunnel")
     parser.add_argument("--no-ui", action="store_true", help="Disable UI mode")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     args = parser.parse_args()
@@ -622,7 +853,14 @@ def main():
         cfg["api_key"] = args.api_key
     if args.tunnel_url:
         cfg["tunnel_url"] = args.tunnel_url
-        save_config(cfg)
+        cfg["tunnel"]["url"] = args.tunnel_url
+    if args.tunnel_provider:
+        cfg["tunnel"]["provider"] = args.tunnel_provider
+        cfg["tunnel"]["enabled"] = True
+        cfg["tunnel"]["auto_start"] = True
+    if args.tunnel_autostart:
+        cfg["tunnel"]["enabled"] = True
+        cfg["tunnel"]["auto_start"] = True
 
     cfg["host"] = os.environ.get("ZEROAPI_HOST", cfg["host"])
     cfg["port"] = int(os.environ.get("ZEROAPI_PORT", cfg["port"]))
@@ -631,11 +869,24 @@ def main():
         cfg["tunnel_url"] = os.environ.get("ZEROAPI_TUNNEL_URL")
     if os.environ.get("TUNNEL_URL"):
         cfg["tunnel_url"] = os.environ.get("TUNNEL_URL")
+    if os.environ.get("ZEROAPI_TUNNEL_PROVIDER"):
+        cfg["tunnel"]["provider"] = os.environ.get("ZEROAPI_TUNNEL_PROVIDER")
+        cfg["tunnel"]["enabled"] = True
+
+    # Auto-start tunnel if configured
+    tunnel_cfg = cfg.get("tunnel", {})
+    if tunnel_cfg.get("enabled") and tunnel_cfg.get("auto_start"):
+        print(f"[zeroapi] Tunnel autostart enabled: {tunnel_cfg.get('provider')} — will start after server")
+        # Start tunnel in background after short delay
+        def delayed_tunnel_start():
+            time.sleep(3)  # wait for server to start
+            start_tunnel_from_config(cfg)
+        threading.Thread(target=delayed_tunnel_start, daemon=True).start()
 
     if args.no_ui:
         print(f"""
 ╔══════════════════════════════════════════════════════════════╗
-║  ZeroAPI Server v2.7.0 - OpenAI Compatible API               ║
+║  ZeroAPI Server v2.8.0 - OpenAI Compatible API               ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  API:        http://{cfg['host']}:{cfg['port']}/v1/chat/completions      ║
 ║  Dashboard:  http://{cfg['host']}:{cfg['port']}/                        ║
@@ -649,11 +900,14 @@ def main():
             for t in tunnels:
                 print(f"     {t['url']} ({t['type']}) -> {t['url']}/v1/chat/completions")
             print()
+        if tunnel_cfg.get("enabled"):
+            print(f"  🚀 Tunnel autostart: {tunnel_cfg.get('provider')} enabled")
         try:
             import uvicorn
             uvicorn.run("server.main:app", host=cfg["host"], port=cfg["port"], reload=args.reload, log_level="info" if cfg["log_enabled"] else "warning")
         except KeyboardInterrupt:
             print("\nShutting down...")
+            stop_tunnel()
         return
 
     clear_console()
@@ -668,7 +922,8 @@ def main():
     try:
         ui_loop(cfg)
     except KeyboardInterrupt:
-        print("\n\033[1;33mShutting down...\033[0m")
+        print("\n\033[1;33mShutting down... (stopping tunnel)\033[0m")
+        stop_tunnel()
         stop_event.set()
         os._exit(0)
 

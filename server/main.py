@@ -1,6 +1,6 @@
 """
 ZeroAPI Server - OpenAI Compatible API Server based on ZeroScript
-v2.7.0 - Active models + test API for AI News plugin / Smartspacer
+v2.8.0 - Active models + test API for AI News plugin / Smartspacer
 """
 
 import asyncio
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=_start, daemon=True).start()
     except Exception as e:
         logger.warning(f"MCP init failed: {e}")
-    logger.info(f"ZeroAPI Server v2.7.0 starting on {HOST}:{PORT}")
+    logger.info(f"ZeroAPI Server v2.8.0 starting on {HOST}:{PORT}")
     yield
     for client in mcp_manager.clients.values():
         try:
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ZeroAPI - OpenAI Compatible Server",
     description="OpenAI-compatible API server powered by browser automation. Site names as model ids: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena.",
-    version="2.7.0",
+    version="2.8.0",
     lifespan=lifespan
 )
 
@@ -291,7 +291,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({
                     "type": "registered",
                     "client_id": client_id,
-                    "server": "ZeroAPI v2.7.0",
+                    "server": "ZeroAPI v2.8.0",
                     "message": f"Registered as {client.provider} client"
                 }))
                 continue
@@ -429,7 +429,7 @@ async def dashboard():
     </style>
 </head>
 <body>
-    <h1><span class="logo">⚡</span> ZeroAPI Server v2.7.0 — site names as models + auto-switch + tunnels</h1>
+    <h1><span class="logo">⚡</span> ZeroAPI Server v2.8.0 — site names as models + auto-switch + tunnels</h1>
     <p>OpenAI-compatible API. Use <code>model="deepseek"</code> / <code>gemini</code> / <code>chatgpt</code> etc. — simple site names. Auto-switches tabs when different model requested. Tunnel URLs auto-detected.</p>
     
     {tunnel_html}
@@ -482,7 +482,7 @@ resp = client.chat.completions.create(model="deepseek", messages=[{{"role":"user
     </div>
 
     <div class="card" style="text-align:center; color:#666; font-size:0.85em;">
-        ZeroAPI v2.7.0 | auto-switch + tunnels | site names: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
+        ZeroAPI v2.8.0 | auto-switch + tunnels | site names: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
         <a href="https://github.com/RubCut/ZeroAPI">GitHub</a> | <a href="/test">Test</a> | <a href="/v1/models">Models</a> | <a href="/api/active-models">Active</a> | <a href="/api/tunnels">Tunnels</a> | <a href="/health">Health</a>
     </div>
     <script>setTimeout(()=>location.reload(), 5000);</script>
@@ -507,7 +507,7 @@ async def health():
     # Also include tunnels reported by clients? No, client tunnels are browser tabs, not server tunnels
     return {
         "status": "ok",
-        "version": "2.7.0",
+        "version": "2.8.0",
         "browsers_connected": len(clients),
         "active_providers": active_providers,
         "available_providers": list(all_available_providers),
@@ -1151,20 +1151,73 @@ async def list_browsers():
 @app.get("/api/tunnels")
 async def list_tunnels():
     tunnels = detect_tunnels_server(PORT)
-    clients = ws_manager.get_all_clients()
-    # Also collect from clients if they reported? No, tunnels are server-side
+    from .config import TUNNEL_CONFIG, TUNNEL_ENABLED, TUNNEL_PROVIDER, TUNNEL_AUTO_START
     return {
         "tunnels": tunnels,
         "count": len(tunnels),
         "public_url": tunnels[0]["url"] if tunnels else None,
         "port": PORT,
-        "message": f"{len(tunnels)} tunnel(s) active" if tunnels else "No tunnels detected. Use ngrok http 8000 or cloudflared tunnel --url http://localhost:8000 or set tunnel_url in zeroapi_config.json",
+        "autostart": {
+            "enabled": TUNNEL_ENABLED,
+            "provider": TUNNEL_PROVIDER,
+            "auto_start": TUNNEL_AUTO_START,
+            "config": TUNNEL_CONFIG
+        },
+        "message": f"{len(tunnels)} tunnel(s) active" if tunnels else "No tunnels detected. Enable autostart in zeroapi_config.json tunnel.enabled=true",
         "how_to": {
             "ngrok": f"ngrok http {PORT} (auto-detected via http://127.0.0.1:4040)",
             "cloudflare": f"cloudflared tunnel --url http://localhost:{PORT}",
             "localtunnel": f"lt --port {PORT} or npx localtunnel --port {PORT}",
             "bore": f"bore local {PORT} --to bore.pub",
-            "manual": "Set tunnel_url in zeroapi_config.json or env ZEROAPI_TUNNEL_URL=https://xxx.trycloudflare.com"
+            "manual": "Set tunnel_url in zeroapi_config.json or env ZEROAPI_TUNNEL_URL=https://xxx.trycloudflare.com",
+            "autostart": {
+                "description": "Set in zeroapi_config.json to auto-start tunnel on server start",
+                "example": {
+                    "tunnel": {
+                        "enabled": True,
+                        "provider": "cloudflare",
+                        "auto_start": True,
+                        "port": None,
+                        "subdomain": "",
+                        "custom_command": "",
+                        "extra_args": ""
+                    }
+                },
+                "providers": ["cloudflare", "ngrok", "localtunnel", "bore", "custom"],
+                "cli": f"--tunnel-provider cloudflare --tunnel-autostart"
+            }
+        }
+    }
+
+@app.post("/api/tunnels/start")
+async def start_tunnel_api(request: Request):
+    """API to get autostart command - actual start is done by run_server.py"""
+    try:
+        data = await request.json()
+    except:
+        data = {}
+    provider = data.get("provider", "cloudflare")
+    port = data.get("port", PORT)
+    
+    commands = {
+        "cloudflare": f"cloudflared tunnel --url http://localhost:{port}",
+        "ngrok": f"ngrok http {port}",
+        "localtunnel": f"lt --port {port}",
+        "bore": f"bore local {port} --to bore.pub"
+    }
+    
+    return {
+        "provider": provider,
+        "command": commands.get(provider, f"custom command for {provider}"),
+        "port": port,
+        "message": f"To auto-start, set in zeroapi_config.json: tunnel.enabled=true, provider={provider}, auto_start=true. Then restart server. Or run command manually.",
+        "config_example": {
+            "tunnel": {
+                "enabled": True,
+                "provider": provider,
+                "auto_start": True,
+                "port": port
+            }
         }
     }
 

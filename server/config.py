@@ -22,6 +22,10 @@ TUNNEL_URL = os.environ.get("ZEROAPI_TUNNEL_URL", os.environ.get("TUNNEL_URL", _
 PUBLIC_URL = os.environ.get("ZEROAPI_PUBLIC_URL", os.environ.get("PUBLIC_URL", _json_cfg.get("public_url", "")))
 EXTERNAL_URLS = _json_cfg.get("external_urls", [])
 TUNNEL_AUTO_DETECT = _json_cfg.get("tunnel_auto_detect", True)
+TUNNEL_CONFIG = _json_cfg.get("tunnel", {})
+TUNNEL_ENABLED = TUNNEL_CONFIG.get("enabled", False) or TUNNEL_CONFIG.get("auto_start", False)
+TUNNEL_PROVIDER = TUNNEL_CONFIG.get("provider", "cloudflare")
+TUNNEL_AUTO_START = TUNNEL_CONFIG.get("auto_start", False)
 
 # For backward compat
 BRIDGE_PORT = int(os.environ.get("ZS_BRIDGE_PORT", "17613"))
