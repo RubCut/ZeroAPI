@@ -425,7 +425,7 @@ const ZSProvider = (() => {
   // ── Input lock ────────────────────────────────────────────────────────────
   // Real <textarea>: swap placeholder text and set readonly. No re-assert loop
   // needed -- React doesn't recreate this element between inject/clear cycles.
-  const LOCK_MSG = "⏳ Agent working… please wait";
+  const LOCK_MSG = "Agent working... please wait";
   let _origPlaceholder = null;
 
   function setInputLock(on) {

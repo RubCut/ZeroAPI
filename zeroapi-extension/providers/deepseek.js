@@ -169,7 +169,7 @@ const ZSProvider = (() => {
     if (on) {
       if (!ed.dataset.zsPlaceholder) ed.dataset.zsPlaceholder = ed.getAttribute("placeholder") || "";
       ed.setAttribute("readonly", "");
-      ed.setAttribute("placeholder", "⏳ Agent working… please wait");
+      ed.setAttribute("placeholder", "Agent working... please wait");
     } else {
       ed.removeAttribute("readonly");
       if (ed.dataset.zsPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.zsPlaceholder);

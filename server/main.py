@@ -1,6 +1,6 @@
 """
 ZeroAPI Server - OpenAI Compatible API Server based on ZeroScript
-v2.8.1 - Active models + test API for AI News plugin / Smartspacer
+v1.0.0 - Active models + test API for AI News plugin / Smartspacer
 """
 
 import asyncio
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=_start, daemon=True).start()
     except Exception as e:
         logger.warning(f"MCP init failed: {e}")
-    logger.info(f"ZeroAPI Server v2.8.1 starting on {HOST}:{PORT}")
+    logger.info(f"ZeroAPI Server v1.0.0 starting on {HOST}:{PORT}")
     yield
     for client in mcp_manager.clients.values():
         try:
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ZeroAPI - OpenAI Compatible Server",
     description="OpenAI-compatible API server powered by browser automation. Site names as model ids: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena.",
-    version="2.8.1",
+    version="1.0.0",
     lifespan=lifespan
 )
 
@@ -291,7 +291,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({
                     "type": "registered",
                     "client_id": client_id,
-                    "server": "ZeroAPI v2.8.1",
+                    "server": "ZeroAPI v1.0.0",
                     "message": f"Registered as {client.provider} client"
                 }))
                 continue
@@ -362,7 +362,7 @@ async def dashboard():
     
     client_rows = ""
     for c in clients:
-        status = "🟢 Busy" if c.busy else "🟢 Ready"
+        status = "Busy" if c.busy else "Ready"
         provs = ", ".join(c.providers) if c.providers else c.provider
         client_rows += f"<tr><td>{c.id}</td><td><code>{provs}</code></td><td>{status}</td><td>{c.url[:60]}</td><td>{time.strftime('%H:%M:%S', time.localtime(c.last_seen))}</td></tr>"
     if not client_rows:
@@ -372,10 +372,10 @@ async def dashboard():
 
     tunnel_html = ""
     if tunnels:
-        tunnel_rows = "".join(f'<tr><td><span class="badge green">● {t["type"]}</span></td><td><a href="{t["url"]}" target="_blank">{t["url"]}</a></td><td><code>{t["url"]}/v1/chat/completions</code></td><td>{t.get("source","auto")}</td></tr>' for t in tunnels)
+        tunnel_rows = "".join(f'<tr><td><span class="badge green">{t["type"]}</span></td><td><a href="{t["url"]}" target="_blank">{t["url"]}</a></td><td><code>{t["url"]}/v1/chat/completions</code></td><td>{t.get("source","auto")}</td></tr>' for t in tunnels)
         tunnel_html = f"""
     <div class="card" style="border-color:#0a2;">
-        <h3>🌐 Active Tunnels — Public URLs (auto-detected)</h3>
+        <h3>Active Tunnels — Public URLs (auto-detected)</h3>
         <p style="color:#6ee7b7;">Your API is publicly accessible via these tunnels! Use them for phone, other devices, or sharing.</p>
         <table>
             <tr><th>Type</th><th>Public URL</th><th>API Endpoint</th><th>Source</th></tr>
@@ -387,7 +387,7 @@ async def dashboard():
     else:
         tunnel_html = f"""
     <div class="card" style="border-color:#333; opacity:0.8;">
-        <h3>🌐 Tunnels — No public tunnels detected</h3>
+        <h3>Tunnels — No public tunnels detected</h3>
         <p style="color:#888;">Your API is only available locally and via LAN. To make it public:</p>
         <div style="background:#111; padding:12px; border-radius:6px; font-family:monospace; font-size:0.9em;">
             ngrok http {PORT}  # auto-detected via http://127.0.0.1:4040<br>
@@ -429,13 +429,13 @@ async def dashboard():
     </style>
 </head>
 <body>
-    <h1><span class="logo">⚡</span> ZeroAPI Server v2.8.1 — site names as models + auto-switch + tunnels</h1>
+    <h1> ZeroAPI Server v1.0.0 — site names as models + auto-switch + tunnels</h1>
     <p>OpenAI-compatible API. Use <code>model="deepseek"</code> / <code>gemini</code> / <code>chatgpt</code> etc. — simple site names. Auto-switches tabs when different model requested. Tunnel URLs auto-detected.</p>
     
     {tunnel_html}
 
     <div class="card">
-        <h3>📡 Connected Browsers ({len(clients)}) — Active providers: {', '.join(active_providers) if active_providers else 'none'} — Auto-switch: ON</h3>
+        <h3>Connected Browsers ({len(clients)}) — Active providers: {', '.join(active_providers) if active_providers else 'none'} — Auto-switch: ON</h3>
         <table>
             <tr><th>ID</th><th>Providers (auto-switch)</th><th>Status</th><th>URL</th><th>Last Seen</th></tr>
             {client_rows}
@@ -443,16 +443,16 @@ async def dashboard():
     </div>
 
     <div class="card">
-        <h3>🤖 Active Models (site names) — for AI News plugin / Smartspacer</h3>
+        <h3>Active Models (site names)</h3>
         <p>These are the models your plugin should show. Only connected browsers are listed as active.</p>
         <div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">
-            {"".join(f'<span class="badge {"green" if m["provider"] in active_providers else ""}"><span class="{"active-dot" if m["provider"] in active_providers else "inactive-dot"}"></span>{m["id"]} → {m["provider"]} {"✅ active" if m["provider"] in active_providers else "○ offline"}</span>' for m in simple_models)}
+            {"".join(f'<span class="badge {"green" if m["provider"] in active_providers else ""}"><span class="{"active-dot" if m["provider"] in active_providers else "inactive-dot"}"></span>{m["id"]} → {m["provider"]} {"[active]" if m["provider"] in active_providers else "[offline]"}</span>' for m in simple_models)}
         </div>
         <p style="color:#888; font-size:0.9em;">Fetch via <code>GET /v1/models</code> or <code>GET /api/active-models</code> or <code>GET /zeroapi/&lt;model&gt;</code> | Auto-switches between tabs when different model requested</p>
     </div>
 
     <div class="card">
-        <h3>🔌 API Endpoints — Test & Fetch</h3>
+        <h3>API Endpoints — Test & Fetch</h3>
         <div class="endpoint"><span class="method get">GET</span> <code>/v1/models</code> - List active models</div>
         <div class="endpoint"><span class="method get">GET</span> <code>/api/tunnels</code> - List active tunnels (ngrok, cloudflare, lt) — <a href="/api/tunnels">/api/tunnels</a></div>
         <div class="endpoint"><span class="method get">GET</span> <code>/v1/models/active</code> / <code>/api/active-models</code> - Only active models</div>
@@ -465,7 +465,7 @@ async def dashboard():
     </div>
 
     <div class="card">
-        <h3>💻 Usage for AI News Plugin</h3>
+        <h3>Usage Example</h3>
         <pre style="background:#111; padding:15px; border-radius:6px; overflow-x:auto;"><code>// 1. Fetch active models
 fetch('http://localhost:{PORT}/api/active-models').then(r=>r.json()).then(console.log)
 
@@ -482,7 +482,7 @@ resp = client.chat.completions.create(model="deepseek", messages=[{{"role":"user
     </div>
 
     <div class="card" style="text-align:center; color:#666; font-size:0.85em;">
-        ZeroAPI v2.8.1 | auto-switch + tunnels | site names: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
+        ZeroAPI v1.0.0 | auto-switch + tunnels | site names: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
         <a href="https://github.com/RubCut/ZeroAPI">GitHub</a> | <a href="/test">Test</a> | <a href="/v1/models">Models</a> | <a href="/api/active-models">Active</a> | <a href="/api/tunnels">Tunnels</a> | <a href="/health">Health</a>
     </div>
     <script>setTimeout(()=>location.reload(), 5000);</script>
@@ -507,7 +507,7 @@ async def health():
     # Also include tunnels reported by clients? No, client tunnels are browser tabs, not server tunnels
     return {
         "status": "ok",
-        "version": "2.8.1",
+        "version": "1.0.0",
         "browsers_connected": len(clients),
         "active_providers": active_providers,
         "available_providers": list(all_available_providers),
@@ -658,7 +658,7 @@ async def zeroapi_model_test(model_id: str):
             "fetch_test": f"POST /api/test with {{\"model\":\"{model_id}\",\"prompt\":\"Hello\"}}"
         },
         "domain": domain,
-        "message": f"Model {model_id} is {'ready ✅' if is_active else 'offline ❌ - open '+domain+' with extension and click Use this chat'}",
+        "message": f"Model {model_id} is {'ready [active]' if is_active else 'offline [offline] - open '+domain+' with extension and click Use this chat'}",
     }
 
 @app.get("/api/test/{model_id}")
@@ -759,7 +759,7 @@ async def api_test_post(request: Request):
 async def test_page():
     clients = ws_manager.get_all_clients()
     active = list(get_active_providers())
-    options = "".join(f'<option value="{m}">{m} {"✅" if m in active else "○"}</option>' for m in ["deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena"])
+    options = "".join(f'<option value="{m}">{m} {"[active]" if m in active else "[offline]"}</option>' for m in ["deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena"])
     return HTMLResponse(content=f"""
 <!DOCTYPE html>
 <html>
@@ -776,10 +776,10 @@ pre{{background:#111;padding:15px;border-radius:6px;overflow-x:auto;white-space:
 </style>
 </head>
 <body>
-<h1>⚡ ZeroAPI Test — /zeroapi/deepseek style</h1>
+<h1> ZeroAPI Test — /zeroapi/deepseek style</h1>
 <div class="card">
 <h3>Active: {', '.join(active) if active else 'none — open chat tabs'} | Browsers: {len(clients)}</h3>
-<div>{''.join(f'<span class="badge {"active" if m in active else ""}">{m} {"✅" if m in active else "○"}</span>' for m in ["deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena"])}</div>
+<div>{''.join(f'<span class="badge {"active" if m in active else ""}">{m} {"[active]" if m in active else "[offline]"}</span>' for m in ["deepseek","chatgpt","gemini","kimi","glm","qwen","meta","arena"])}</div>
 <p>Fetch active models: <code>GET /api/active-models</code> | <code>GET /v1/models</code></p>
 <p>Test model: <code>GET /zeroapi/deepseek</code> | <code>GET /zeroapi/gemini</code></p>
 </div>

@@ -1,24 +1,22 @@
 # ZeroAPI — OpenAI Compatible Browser Bridge
 
-**Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Meta AI, Arena into an OpenAI-compatible API server.**
+Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Meta AI, Arena into a local OpenAI-compatible API server. No API keys needed — your logged-in browser sessions are the engine.
 
-No API keys needed — uses your logged-in browser sessions. Your browser is the engine.
-
-![Version](https://img.shields.io/badge/version-2.8.1-brightgreen)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
-> Based on ZeroScript by sebattfg, transformed into pure API server.
+Based on ZeroScript by sebattfg, transformed into pure API server.
 
 ## Features
 
-- **OpenAI-compatible**: Works with OpenAI SDK, LangChain, OpenWebUI, opencode, AI News plugin, etc.
-- **Site names as models**: `deepseek`, `chatgpt`, `gemini`, `kimi`, `glm`, `qwen`, `meta`, `arena`, `auto`
-- **File support**: Any file type (images, PDFs, docs) via `image_url` or `file` parts, auto-cleared after insertion
-- **Auto-switch tabs**: When different model requested, extension auto-switches to matching tab
-- **Tunnel detection + auto-start**: Auto-detects public URLs from ngrok, Cloudflare, localtunnel, bore; can auto-start tunnel from config
-- **Compact professional UI**: Clean console, network IP, public URLs, models, controls
-- **Config file**: `zeroapi_config.json` for ports, keys, models, tunnels
+- OpenAI-compatible: Works with OpenAI SDK, LangChain, OpenWebUI, opencode, etc.
+- Site names as models: `deepseek`, `chatgpt`, `gemini`, `kimi`, `glm`, `qwen`, `meta`, `arena`, `auto`
+- File support: Any file type via `image_url` or `file` parts, auto-cleared after insertion
+- Auto-switch tabs: When different model requested, extension switches to matching tab
+- Tunnel detection + auto-start: Detects public URLs from ngrok, Cloudflare, localtunnel, bore; can auto-start tunnel from config
+- Compact UI: Clean console with server URLs, models, controls
+- Config file: `zeroapi_config.json` for ports, keys, models, tunnels
 
 ## Supported Models
 
@@ -34,158 +32,228 @@ No API keys needed — uses your logged-in browser sessions. Your browser is the
 | `arena` | Arena | arena.ai |
 | `auto` | Any active tab | — |
 
-Full aliases also work: `deepseek-chat`, `gpt-4o`, `gemini-2.0-flash`, etc.
+Aliases also work: `deepseek-chat`, `deepseek-reasoner`, `gpt-4o`, `gpt-4o-mini`, `gemini-2.0-flash`, etc.
 
 ## Quick Start
 
 ### 1. Run Server
 
-**Windows:** Double-click `start_api.bat`
+Windows: double-click `start_api.bat`
 
-**macOS/Linux:** `./start_api.sh` or `python zeroapi.py`
-
-Compact UI:
+macOS/Linux: `./start_api.sh` or `python zeroapi.py`
 
 ```
- ZeroAPI v2.8.1 | OpenAI Compatible API Server
+ ZeroAPI v1.0.0 | OpenAI Compatible API Server
  ------------------------------------------------------------
- Status: RUNNING | Port: 8000 | Browsers: 2
+ Status: RUNNING | Port: 8000 | Browsers: 0
  ------------------------------------------------------------
 
  Server
    Local:   http://localhost:8000
    Network: http://192.168.1.50:8000
-   Public:  https://abc-123.trycloudflare.com [cloudflare]
-            https://abc-123.trycloudflare.com/v1/chat/completions
+   Public:  (none)
 
  Auth
    API Key: zeroapi
 
  Models
-   deepseek [active]  gemini [active]  chatgpt  kimi  glm  qwen  meta  arena
-   2 browsers, 2 providers, auto-switch: on
+   deepseek  chatgpt  gemini  kimi  glm  qwen  meta  arena
+   0 browsers, 0 providers, auto-switch: on
 
  Endpoints
    /  /v1/models  /v1/chat/completions  /api/tunnels  /health
    Dashboard: http://localhost:8000/
 
- Logs: OFF | Tunnels: 1 | Providers: deepseek, gemini
+ Logs: OFF | Tunnels: 0 | Providers: none
  ------------------------------------------------------------
  [L] Logs  [T] Tunnels  [S] Tunnel Start/Stop  [R] Reload  [C] Clear  [Q] Quit
  ------------------------------------------------------------
 ```
 
-Config: edit `zeroapi_config.json`:
-
-```json
-{
-  "host": "0.0.0.0",
-  "port": 8000,
-  "api_key": "zeroapi",
-  "tunnel": {
-    "enabled": true,
-    "provider": "cloudflare",
-    "auto_start": true
-  }
-}
-```
-
 ### 2. Install Extension
 
-- `chrome://extensions` -> Developer mode ON -> Load unpacked -> select `zeroapi-extension/` folder
+- Open `chrome://extensions` in Chrome/Edge/Brave
+- Enable Developer mode
+- Click Load unpacked
+- Select `zeroapi-extension/` folder from this repo
 
 ### 3. Open AI Chat
 
-Open https://chat.deepseek.com or https://chatgpt.com or https://gemini.google.com
+Open https://chat.deepseek.com and log in.
 
-Extension shows `ZeroAPI [deepseek] Active` — click `Use this chat` if not active.
+Extension bar at bottom shows: `ZeroAPI [deepseek] Active`. If not active, click `Use this chat`.
 
-### 4. Use API
+For other providers, open their sites in separate tabs.
+
+### 4. Test API
+
+```bash
+curl http://localhost:8000/v1/models
+```
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi")
 
-resp = client.chat.completions.create(model="deepseek", messages=[{"role": "user", "content": "Hello!"}])
-print(resp.choices[0].message.content)
-
-# Auto-switches to Gemini tab if open
-resp = client.chat.completions.create(model="gemini", messages=[{"role": "user", "content": "Hi Gemini"}])
-```
-
-With files:
-
-```python
-import base64
-with open("image.jpg","rb") as f:
-    b64 = base64.b64encode(f.read()).decode()
-
 resp = client.chat.completions.create(
-    model="gemini",
-    messages=[{
-        "role": "user",
-        "content": [
-            {"type": "text", "text": "What is in this image?"},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-        ]
-    }]
+    model="deepseek",
+    messages=[{"role": "user", "content": "Hello!"}]
 )
+print(resp.choices[0].message.content)
 ```
 
-### Tunnels — Public URL
+## Tutorial: opencode + DeepSeek via ZeroAPI
 
-Make your local API public:
+This is the recommended setup for local coding agent using your DeepSeek browser session.
+
+### What is opencode?
+
+opencode is an open-source AI coding agent that supports OpenAI-compatible providers. With ZeroAPI, you can use DeepSeek (or any browser chat) as its engine without API keys.
+
+### Step 1: Install opencode
+
+https://opencode.ai
 
 ```bash
-# ngrok (auto-detected via http://127.0.0.1:4040/api/tunnels)
-ngrok http 8000
+# macOS / Linux
+curl -fsSL https://opencode.ai/install | bash
 
-# Cloudflare Tunnel
-cloudflared tunnel --url http://localhost:8000
+# or npm
+npm i -g opencode-ai
+```
 
-# LocalTunnel
-lt --port 8000
+Verify:
 
-# Bore
-bore local 8000 --to bore.pub
+```bash
+opencode --version
+```
 
-# Or autostart via config
+### Step 2: Start ZeroAPI + DeepSeek
+
+1. Run server: `python zeroapi.py` or `start_api.bat`
+2. Load extension in browser
+3. Open https://chat.deepseek.com, log in, make sure tab shows `ZeroAPI [deepseek] Active`
+4. Check dashboard http://localhost:8000/ — should show 1 browser connected, provider `deepseek`
+
+### Step 3: Configure opencode to use ZeroAPI
+
+In your project root, create `opencode.json`:
+
+```json
 {
-  "tunnel": {
-    "enabled": true,
-    "provider": "cloudflare",
-    "auto_start": true
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "zeroapi": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "ZeroAPI (local browser)",
+      "options": {
+        "baseURL": "http://localhost:8000/v1",
+        "apiKey": "zeroapi"
+      },
+      "models": {
+        "deepseek": {
+          "name": "DeepSeek"
+        }
+      }
+    }
   }
 }
-
-# Or env
-ZEROAPI_TUNNEL_URL=https://xxx.trycloudflare.com python zeroapi.py
 ```
 
-UI shows:
+Or use the example file from this repo:
 
+```bash
+cp opencode.zeroapi.example.json opencode.json
 ```
-   Public:  https://abc.trycloudflare.com [cloudflare]
-            https://abc.trycloudflare.com/v1/chat/completions
+
+If you want all models available, use this expanded version:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "zeroapi": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "ZeroAPI",
+      "options": {
+        "baseURL": "http://localhost:8000/v1",
+        "apiKey": "zeroapi"
+      },
+      "models": {
+        "deepseek": { "name": "DeepSeek" },
+        "chatgpt": { "name": "ChatGPT" },
+        "gemini": { "name": "Gemini" },
+        "auto": { "name": "Auto" }
+      }
+    }
+  },
+  "model": "zeroapi/deepseek"
+}
 ```
 
-API:
-- `GET /api/tunnels` — list tunnels
-- `GET /health` — includes `tunnels`, `public_url`
+Set default model:
 
-## API Endpoints
+```json
+{
+  "model": "zeroapi/deepseek"
+}
+```
 
-- `GET /` — Dashboard
-- `GET /v1/models` — 9 simple models
-- `GET /v1/models/all` — full 21 models
-- `GET /api/active-models` — active + browsers
-- `GET /api/tunnels` — list tunnels + autostart config
-- `POST /api/tunnels/start` — get start command
-- `GET /health` — health with tunnels, providers
-- `POST /v1/chat/completions` — OpenAI compatible
+### Step 4: Run opencode
 
-## Config
+```bash
+opencode
+# or
+opencode run "Explain this codebase"
+```
+
+opencode will now:
+
+1. Call `http://localhost:8000/v1/chat/completions` with `model: deepseek`
+2. ZeroAPI server forwards prompt to your DeepSeek browser tab via WebSocket
+3. Extension types prompt into chat.deepseek.com and reads response
+4. Response streams back to opencode as OpenAI-compatible chunks
+
+You should see streaming in opencode TUI, and in browser tab you will see messages appearing.
+
+### Step 5: Tips for DeepSeek
+
+- Keep DeepSeek tab visible (not minimized) — Chrome throttles background tabs
+- DeepSeek has strong reasoning, good for code. Use `deepseek` model id.
+- For files: opencode sends file context automatically, ZeroAPI injects them via `image_url` parts and auto-clears after.
+- If you request `gemini` but only `deepseek` tab open, ZeroAPI will use `deepseek` anyway (or auto-switch if you have both tabs open and auto-switch enabled).
+
+### Troubleshooting opencode
+
+- `No browser connected`: Make sure extension shows Active and server shows Browsers: 1
+- `Timeout`: DeepSeek may be thinking — wait 30s, check browser tab for errors
+- `Model not found`: Check `opencode.json` provider id matches `zeroapi` and model is `deepseek`
+- Browser tab not typing: Refresh chat.deepseek.com, click `Use this chat` again
+- Want public URL for remote opencode: enable tunnel in `zeroapi_config.json` (see Tunnels section)
+
+## Other Integrations
+
+### OpenAI Python SDK
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi")
+client.chat.completions.create(model="deepseek", messages=[{"role":"user","content":"hi"}])
+```
+
+### OpenWebUI
+
+Settings -> Connections -> OpenAI -> Base URL: `http://localhost:8000/v1`, API Key: `zeroapi`
+
+### LangChain
+
+```python
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi", model="deepseek")
+```
+
+## Configuration
 
 `zeroapi_config.json`:
 
@@ -195,8 +263,9 @@ API:
   "port": 8000,
   "api_key": "zeroapi",
   "log_enabled": false,
-  "auto_clear_files": true,
   "auto_switch_tabs": true,
+  "auto_focus_tab": true,
+  "notify_on_switch": true,
   "tunnel_auto_detect": true,
   "tunnel": {
     "enabled": false,
@@ -206,29 +275,114 @@ API:
     "subdomain": "",
     "custom_command": "",
     "extra_args": ""
+  },
+  "models": ["deepseek", "chatgpt", "gemini", "kimi", "glm", "qwen", "meta", "arena", "auto"]
+}
+```
+
+CLI args:
+
+```bash
+python zeroapi.py --port 8000 --api-key mykey --tunnel-provider cloudflare --tunnel-autostart
+python zeroapi.py --no-ui
+```
+
+Env vars:
+
+```bash
+ZEROAPI_PORT=8000 ZEROAPI_API_KEY=zeroapi ZEROAPI_TUNNEL_URL=https://xxx.trycloudflare.com python zeroapi.py
+```
+
+## Tunnels — Public URL
+
+Make local API public:
+
+```bash
+# Cloudflare (recommended)
+cloudflared tunnel --url http://localhost:8000
+
+# ngrok
+ngrok http 8000
+
+# localtunnel
+lt --port 8000
+
+# bore
+bore local 8000 --to bore.pub
+```
+
+Auto-detection: ZeroAPI auto-detects tunnel URLs from ngrok API (4040), cloudflared logs, env vars.
+
+Auto-start from config:
+
+```json
+{
+  "tunnel": {
+    "enabled": true,
+    "provider": "cloudflare",
+    "auto_start": true
   }
 }
 ```
 
-Providers for tunnel: `cloudflare`, `ngrok`, `localtunnel`, `bore`, `custom`
+Providers: `cloudflare`, `ngrok`, `localtunnel`, `bore`, `custom`
 
-## What's New
+Then UI shows:
 
-### v2.8.1 — Compact Professional UI
-- Removed emojis, smaller header, product-ready layout
-- Same autostart features as v2.8.0 but cleaner
-- UI: `ZeroAPI v2.8.1 | OpenAI Compatible API Server` + compact sections
+```
+   Public:  https://abc.trycloudflare.com [cloudflare]
+            https://abc.trycloudflare.com/v1/chat/completions
+```
 
-### v2.8.0 — Tunnel Auto-start + Detection
-- Auto-start tunnel from config `tunnel.enabled=true provider=cloudflare auto_start=true`
-- Detection: ngrok via 4040 API, cloudflare via logs/env, lt, bore
-- UI T tunnels, S start/stop, `/api/tunnels` endpoint
+Use public URL in opencode.json:
 
-### v2.6.0 — Auto-switch Tabs
-- Extension auto-switches between tabs when different models required
+```json
+{
+  "options": {
+    "baseURL": "https://abc.trycloudflare.com/v1",
+    "apiKey": "zeroapi"
+  }
+}
+```
 
-### v2.5.0 — Clean Release + UI
-- Removed ZeroScript remnants, only our batch + extension in releases
+## API Endpoints
+
+- `GET /` — Dashboard
+- `GET /v1/models` — 9 simple models (site names)
+- `GET /v1/models/all` — 21 models with aliases
+- `GET /api/active-models` — active browsers
+- `GET /api/tunnels` — tunnels + autostart config
+- `POST /api/tunnels/start` — get start command for provider
+- `GET /health` — health, tunnels, providers, auto_switch
+- `GET /api/status` — status
+- `POST /v1/chat/completions` — OpenAI compatible, streaming supported
+- `POST /v1/completions` — legacy completions
+- `POST /v1/embeddings` — dummy embeddings (1536 dim)
+
+## How it Works
+
+```
+opencode / OpenAI Client
+      |
+      v
+ZeroAPI Server (FastAPI :8000) -- WebSocket :8000/ws
+      |
+      v
+Extension (content script + background)
+      |
+      v
+AI Chat Site (chat.deepseek.com, etc.)
+```
+
+Server selects browser tab by provider (model -> provider map). Extension uses provider-specific DOM logic to type prompt and read response. Streaming via incremental text diff.
+
+## Development
+
+```bash
+pip install -r requirements.txt
+python tests/test_server.py
+python zeroapi.py --reload
+```
 
 ## License
 

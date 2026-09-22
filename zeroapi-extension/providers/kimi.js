@@ -251,7 +251,7 @@ const ZSProvider = (() => {
   // small interval rather than setting it once. The site's real placeholder text
   // is captured the first time we lock so we can restore it on unlock regardless
   // of which (recreated) node is current.
-  const LOCK_MSG = "⏳ Agent working… please wait";
+  const LOCK_MSG = "Agent working... please wait";
   let _locked = false, _phTimer = null, _phObs = null, _origPlaceholder = null;
   // Set true only for the brief window typeAndSend re-enables the editor to
   // inject text - so the self-healing lock below doesn't fight the injection.

@@ -25,7 +25,7 @@ ZeroAPI v2.3.0 now provides:
 
 **If fetch fails:**
 - Ensure ZeroAPI server running: `python run_server.py` → binds 0.0.0.0:8000
-- Ensure extension installed, tab open (deepseek.com / chatgpt.com / gemini.google.com), bar shows `✓ Active` with model pill
+- Ensure extension installed, tab open (deepseek.com / chatgpt.com / gemini.google.com), bar shows ` Active` with model pill
 - Ensure phone and laptop on same WiFi
 - Check firewall: allow port 8000
 - Try `http://YOUR_IP:8000/api/test` in phone browser — should return JSON

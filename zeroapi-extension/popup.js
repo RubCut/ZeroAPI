@@ -47,7 +47,7 @@ function renderStatus(s) {
   if (s.apiConnected) {
     dot.className = "dot api on";
     const switchStatus = currentSettings.autoSwitch ? "🔄 auto-switch ON" : "⏸️ auto-switch OFF";
-    apiState.innerHTML = `✅ <b>API Server</b>: Connected <span class="badge ok">online</span> <span style="opacity:0.6">:${8000}</span> <span class="badge ok">${switchStatus}</span>`;
+    apiState.innerHTML = `API Server: Connected <span class="badge ok">online</span> <span style="opacity:0.6">:${8000}</span> <span class="badge ok">${switchStatus}</span>`;
   } else {
     dot.className = "dot off";
     apiState.innerHTML = `❌ <b>API Server</b>: Offline <span class="badge warn">run server</span><br><small style="opacity:0.6">Run: <code>python run_server.py</code> or <code>start_api.bat</code></small>`;
@@ -70,7 +70,7 @@ function renderStatus(s) {
     if (chrome.management && chrome.management.getAll) {
       chrome.management.getAll(exts => {
         const hasZS = exts.some(e => e.name && e.name.toLowerCase().includes("zeroscript"));
-        compatEl.textContent = hasZS ? "✅ ZeroScript detected — compatible (bars stack)" : "○ ZeroScript not installed — ZeroAPI works standalone";
+        compatEl.textContent = hasZS ? "ZeroScript detected — compatible (bars stack)" : "ZeroScript not installed — ZeroAPI works standalone";
       });
     } else {
       compatEl.textContent = "ZeroAPI uses za- prefix, ZeroScript uses zs- — compatible";
@@ -191,7 +191,7 @@ document.getElementById("use-active").addEventListener("click", () => {
       btn.textContent = `✓ ${prov.name} active for API`;
       btn.classList.add("active");
       setTimeout(() => {
-        btn.textContent = "📌 Use this chat for API";
+        btn.textContent = "Use this chat for API";
         btn.classList.remove("active");
       }, 2500);
       refreshStatus();

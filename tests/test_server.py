@@ -147,4 +147,4 @@ if __name__ == "__main__":
     test_ws_manager()
     test_provider_domains()
     test_model_provider_map()
-    print("\nAll tests passed! 🎉")
+    print("\nAll tests passed! ")

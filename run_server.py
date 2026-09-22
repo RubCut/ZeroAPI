@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ZeroAPI Server Runner v2.8.1 - Compact professional UI
+ZeroAPI Server Runner v1.0.0 - Compact professional UI
 - Small header, no emojis, product-ready
 - Config: zeroapi_config.json for ports, keys, tunnel autostart
 - Auto-detects tunnels: cloudflare, ngrok, localtunnel, bore
@@ -95,7 +95,7 @@ def get_local_ip():
             return "127.0.0.1"
 
 def get_header():
-    return "ZeroAPI v2.8.1 | OpenAI Compatible API Server"
+    return "ZeroAPI v1.0.0 | OpenAI Compatible API Server"
 
 # Global state
 log_enabled = False
@@ -736,7 +736,7 @@ def run_uvicorn(cfg):
     )
 
 def main():
-    parser = argparse.ArgumentParser(description="ZeroAPI v2.8.1 - OpenAI Compatible Server")
+    parser = argparse.ArgumentParser(description="ZeroAPI v1.0.0 - OpenAI Compatible Server")
     parser.add_argument("--host", help="Host to bind")
     parser.add_argument("--port", type=int, help="Port to bind")
     parser.add_argument("--api-key", help="API key")
@@ -787,7 +787,7 @@ def main():
 
     if args.no_ui:
         print(f"""
- ZeroAPI v2.8.1 - OpenAI Compatible API Server
+ ZeroAPI v1.0.0 - OpenAI Compatible API Server
  ------------------------------------------------------------
  API:       http://{cfg['host']}:{cfg['port']}/v1/chat/completions
  Dashboard: http://{cfg['host']}:{cfg['port']}/

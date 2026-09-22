@@ -1,5 +1,5 @@
 @echo off
-title ZeroAPI Server v2.4.0
+title ZeroAPI Server v1.0.0
 chcp 65001 >nul
 cd /d "%~dp0"
 

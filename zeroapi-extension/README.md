@@ -31,7 +31,7 @@ python ../run_server.py
 ### 2. Extension
 - `chrome://extensions` → Developer mode → Load unpacked → select `zeroapi-extension` folder
 - Open https://chat.deepseek.com (recommended) → bar appears at top: `ZeroAPI v2.1 DeepSeek | Ready | API: ready | [Use this chat for API]`
-- Click **📌 Use this chat for API** → button becomes `✓ Active for API`, badge `● Active for API`
+- Click ** Use this chat for API** → button becomes ` Active for API`, badge ` Active for API`
 
 ### 3. Use SDK
 ```python
