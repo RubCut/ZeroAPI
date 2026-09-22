@@ -207,5 +207,10 @@ def main():
     print("\nAll MCP tool tests passed!")
 
 
+def test_mcp_tools():
+    """pytest entry point (the real work lives in main())."""
+    main()
+
+
 if __name__ == "__main__":
     main()
