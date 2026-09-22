@@ -1,6 +1,6 @@
 """
 ZeroAPI Server - OpenAI Compatible API Server based on ZeroScript
-v2.8.0 - Active models + test API for AI News plugin / Smartspacer
+v2.8.1 - Active models + test API for AI News plugin / Smartspacer
 """
 
 import asyncio
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=_start, daemon=True).start()
     except Exception as e:
         logger.warning(f"MCP init failed: {e}")
-    logger.info(f"ZeroAPI Server v2.8.0 starting on {HOST}:{PORT}")
+    logger.info(f"ZeroAPI Server v2.8.1 starting on {HOST}:{PORT}")
     yield
     for client in mcp_manager.clients.values():
         try:
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ZeroAPI - OpenAI Compatible Server",
     description="OpenAI-compatible API server powered by browser automation. Site names as model ids: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena.",
-    version="2.8.0",
+    version="2.8.1",
     lifespan=lifespan
 )
 
@@ -291,7 +291,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({
                     "type": "registered",
                     "client_id": client_id,
-                    "server": "ZeroAPI v2.8.0",
+                    "server": "ZeroAPI v2.8.1",
                     "message": f"Registered as {client.provider} client"
                 }))
                 continue
@@ -429,7 +429,7 @@ async def dashboard():
     </style>
 </head>
 <body>
-    <h1><span class="logo">⚡</span> ZeroAPI Server v2.8.0 — site names as models + auto-switch + tunnels</h1>
+    <h1><span class="logo">⚡</span> ZeroAPI Server v2.8.1 — site names as models + auto-switch + tunnels</h1>
     <p>OpenAI-compatible API. Use <code>model="deepseek"</code> / <code>gemini</code> / <code>chatgpt</code> etc. — simple site names. Auto-switches tabs when different model requested. Tunnel URLs auto-detected.</p>
     
     {tunnel_html}
@@ -482,7 +482,7 @@ resp = client.chat.completions.create(model="deepseek", messages=[{{"role":"user
     </div>
 
     <div class="card" style="text-align:center; color:#666; font-size:0.85em;">
-        ZeroAPI v2.8.0 | auto-switch + tunnels | site names: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
+        ZeroAPI v2.8.1 | auto-switch + tunnels | site names: deepseek, gemini, chatgpt, kimi, glm, qwen, meta, arena<br>
         <a href="https://github.com/RubCut/ZeroAPI">GitHub</a> | <a href="/test">Test</a> | <a href="/v1/models">Models</a> | <a href="/api/active-models">Active</a> | <a href="/api/tunnels">Tunnels</a> | <a href="/health">Health</a>
     </div>
     <script>setTimeout(()=>location.reload(), 5000);</script>
@@ -507,7 +507,7 @@ async def health():
     # Also include tunnels reported by clients? No, client tunnels are browser tabs, not server tunnels
     return {
         "status": "ok",
-        "version": "2.8.0",
+        "version": "2.8.1",
         "browsers_connected": len(clients),
         "active_providers": active_providers,
         "available_providers": list(all_available_providers),
