@@ -1,0 +1,21 @@
+--- a/app/src/main/java/com/rubcut/ainews/AiProvider.kt
++++ b/app/src/main/java/com/rubcut/ainews/AiProvider.kt
+@@ -108,6 +108,17 @@ enum class AiProvider(
+         // A local server usually needs no key at all.
+         requiresKey = false
+     ),
++    ZEROAPI(
++        id = "zeroapi",
++        label = "ZeroAPI (browser)",
++        flavor = ApiFlavor.OPENAI,
++        defaultBaseUrl = "http://127.0.0.1:8000/v1",
++        defaultModel = "deepseek",
++        fallbackModels = listOf("deepseek", "chatgpt", "gemini", "kimi", "glm", "qwen", "meta", "arena", "auto"),
++        apiKeyUrl = "https://github.com/RubCut/ZeroAPI",
++        editableBaseUrl = true,
++        // ZeroAPI doesn't require key, any string works
++        requiresKey = false
++    ),
+     CUSTOM_OPENAI(
+         id = "custom_openai",
+         label = "Custom (OpenAI-compatible)",

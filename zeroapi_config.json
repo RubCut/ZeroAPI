@@ -1,0 +1,40 @@
+{
+  "host": "0.0.0.0",
+  "port": 8000,
+  "api_key": "zeroapi",
+  "log_enabled": false,
+  "theme": "dark",
+  "auto_clear_files": true,
+  "allowed_origins": [
+    "*"
+  ],
+  "default_model": "deepseek",
+  "auto_switch_tabs": true,
+  "auto_focus_tab": true,
+  "notify_on_switch": true,
+  "tunnel_auto_detect": true,
+  "tunnel_url": "",
+  "public_url": "",
+  "external_urls": [],
+  "tunnel": {
+    "enabled": false,
+    "provider": "cloudflare",
+    "auto_start": false,
+    "port": null,
+    "subdomain": "",
+    "custom_command": "",
+    "extra_args": "",
+    "url_file": ""
+  },
+  "models": [
+    "deepseek",
+    "chatgpt",
+    "gemini",
+    "kimi",
+    "glm",
+    "qwen",
+    "meta",
+    "arena",
+    "auto"
+  ]
+}

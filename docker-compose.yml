@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  zeroapi:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./zeroapi_config.json:/app/zeroapi_config.json
+      - ./logs:/app/logs
+    environment:
+      - ZEROAPI_PORT=8000
+      - ZEROAPI_HOST=0.0.0.0
+      - ZEROAPI_API_KEY=zeroapi
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

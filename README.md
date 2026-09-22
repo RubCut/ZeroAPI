@@ -1,128 +1,389 @@
-# ZeroScript - Free AI Agent for Roblox Studio
+# ZeroAPI — OpenAI Compatible Browser Bridge
 
-![GitHub stars](https://img.shields.io/github/stars/sebattfg/ZeroScript-Free?style=social)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
+Turn ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Meta AI, Arena into a local OpenAI-compatible API server. No API keys needed — your logged-in browser sessions are the engine.
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
-**ZeroScript** is a free browser extension that turns ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into a Roblox Studio AI agent.
-Control Roblox Studio with AI directly from your browser - read/edit scripts, run Luau, generate assets, all from a normal AI chat. No API key, no terminal, no coding needed.
+Based on ZeroScript by sebattfg, transformed into pure API server.
 
-> 🌐 **Website: [zerodev.tools/zeroscript](https://zerodev.tools/zeroscript)** the free Lemonade.gg / Luamotion alternative for building Roblox games with AI.
+## Features
 
-Eight AI providers are supported: **DeepSeek** (chat.deepseek.com, recommended), **ChatGPT** (chatgpt.com), **Google Gemini** (gemini.google.com), **Kimi** (kimi.ai, Moonshot AI), **GLM** (chat.z.ai, Z.ai), **Qwen** (chat.qwen.ai), **Arena** (arena.ai, a multi-model playground) and **Meta AI** (meta.ai). On ChatGPT, screenshots and image input are turned off on purpose: the free tier limits files and images on a separate quota from messages, so vision would only work part of the day. Gemini and Kimi can be unstable: Gemini tends to stop using the Roblox tools in long sessions, and Kimi sometimes uses its own native tools instead of the Roblox commands. On Arena, use **Direct** mode (ZeroScript only supports Direct; it blocks Start in Battle / Side-by-Side / Agent modes). DeepSeek is the recommended provider.
+- OpenAI-compatible: Works with OpenAI SDK, LangChain, OpenWebUI, opencode, etc.
+- Site names as models: `deepseek`, `chatgpt`, `gemini`, `kimi`, `glm`, `qwen`, `meta`, `arena`, `auto`
+- File support: Any file type via `image_url` or `file` parts, auto-cleared after insertion
+- Auto-switch tabs: When different model requested, extension switches to matching tab
+- Tunnel detection + auto-start: Detects public URLs from ngrok, Cloudflare, localtunnel, bore; can auto-start tunnel from config
+- Compact UI: Clean console with server URLs, models, controls
+- Config file: `zeroapi_config.json` for ports, keys, models, tunnels
 
-> 💬 **Stuck? Join the [Discord community](https://discord.gg/9aNyZsMWcb)** get help, share feedback, and follow updates.
+## Supported Models
 
-> *Also known as: ZeroScript Roblox, ZeroScript free download, Roblox ChatGPT agent, Roblox DeepSeek agent, Roblox Gemini agent, Roblox Kimi agent, Roblox GLM agent, Roblox Qwen agent, Roblox Arena agent, Roblox Meta AI agent, Roblox Studio AI automation, Luau AI, MCP Roblox, lemonade alternative free, lemonade.gg alternative, free Roblox AI agent, free lemonade roblox alternative*
+| Model ID | Provider | Site |
+|----------|----------|------|
+| `deepseek` | DeepSeek | chat.deepseek.com |
+| `chatgpt` | ChatGPT | chatgpt.com |
+| `gemini` | Gemini | gemini.google.com |
+| `kimi` | Kimi K2 | kimi.ai |
+| `glm` | GLM-4 | chat.z.ai |
+| `qwen` | Qwen Turbo | chat.qwen.ai |
+| `meta` | Meta AI | meta.ai |
+| `arena` | Arena | arena.ai |
+| `auto` | Any active tab | — |
 
-## ⚠️ ZeroScript is Free Beware of Paid Copycats
+Aliases also work: `deepseek-chat`, `deepseek-reasoner`, `gpt-4o`, `gpt-4o-mini`, `gemini-2.0-flash`, etc.
 
-ZeroScript is 100% free and open-source. It always has been, and it always will be. There is no official paid version, no subscription, and no sign-in required to use the extension.
+## Quick Start
 
-If you come across a site or extension using the ZeroScript name that asks for payment or account creation, it is **not** this project. The only official links are the ones listed at the top of this README.
+### 1. Run Server
 
-## How it works
+Windows: double-click `start_api.bat`
+
+macOS/Linux: `./start_api.sh` or `python zeroapi.py`
 
 ```
-AI chat (ChatGPT / DeepSeek / Gemini / Kimi / GLM / Qwen / Arena / Meta AI, in your browser) -> ZeroScript Extension -> Bridge (your PC) -> Roblox Studio
+ ZeroAPI v1.0.0 | OpenAI Compatible API Server
+ ------------------------------------------------------------
+ Status: RUNNING | Port: 8000 | Browsers: 0
+ ------------------------------------------------------------
+
+ Server
+   Local:   http://localhost:8000
+   Network: http://192.168.1.50:8000
+   Public:  (none)
+
+ Auth
+   API Key: zeroapi
+
+ Models
+   deepseek  chatgpt  gemini  kimi  glm  qwen  meta  arena
+   0 browsers, 0 providers, auto-switch: on
+
+ Endpoints
+   /  /v1/models  /v1/chat/completions  /api/tunnels  /health
+   Dashboard: http://localhost:8000/
+
+ Logs: OFF | Tunnels: 0 | Providers: none
+ ------------------------------------------------------------
+ [L] Logs  [T] Tunnels  [S] Tunnel Start/Stop  [R] Reload  [C] Clear  [Q] Quit
+ ------------------------------------------------------------
 ```
 
-The extension runs inside the chat page (ChatGPT, DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI). When you type a request, it sends commands to the Bridge running on your PC, which drives Roblox Studio through the built-in MCP server.
+### 2. Install Extension
 
-## Setup
+- Open `chrome://extensions` in Chrome/Edge/Brave
+- Enable Developer mode
+- Click Load unpacked
+- Select `zeroapi-extension/` folder from this repo
 
-> 📺 **Lost? Watch the [setup tutorial on YouTube](https://youtu.be/kPKiZLZ9_Ps) it covers every step below.**
+### 3. Open AI Chat
 
-### 1. Download the zip and install the extension
+Open https://chat.deepseek.com and log in.
 
-Download the latest zip from the **Releases** page and extract it. The zip contains both the **Bridge** and the **extension folder**.
+Extension bar at bottom shows: `ZeroAPI [deepseek] Active`. If not active, click `Use this chat`.
 
-To load the extension:
+For other providers, open their sites in separate tabs.
 
-- Go to `edge://extensions` (Edge) or `chrome://extensions` (Chrome)
-- Enable **Developer mode** (top right toggle)
-- Click **Load unpacked**
-- Select the `zeroscript-extension` folder from the extracted zip
+### 4. Test API
 
-### 2. Start Roblox Studio and enable MCP
+```bash
+curl http://localhost:8000/v1/models
+```
 
-Open Studio and load a Place, then enable MCP (first time only):
+```python
+from openai import OpenAI
 
-- Click **Assistant AI** in the top bar
-- Click **...** (top right of the Assistant panel)
-- Click **Manage MCP Servers**
-- Click **Enable Studio as MCP Server**
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi")
 
-> Not sure where to find these options? The [video tutorial](https://youtu.be/kPKiZLZ9_Ps) shows exactly where to click.
+resp = client.chat.completions.create(
+    model="deepseek",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(resp.choices[0].message.content)
+```
 
-### 3. Run the Bridge
+## Tutorial: opencode + DeepSeek via ZeroAPI
 
-- **Windows:** double-click `start.bat` inside the extracted folder.
-- **macOS:** double-click `MacOS_Start.command` inside the extracted folder. The first time, macOS will show a security warning ("could not verify... free of malware") - this is normal for any script downloaded outside the App Store, click **Done**, then go to **System Settings > Privacy & Security**, scroll to the bottom, and click **Open Anyway**. You only need to do this once.
+This is the recommended setup for local coding agent using your DeepSeek browser session.
 
-A small window opens, that means the Bridge is running.
+### What is opencode?
 
-### 4. Start a session
+opencode is an open-source AI coding agent that supports OpenAI-compatible providers. With ZeroAPI, you can use DeepSeek (or any browser chat) as its engine without API keys.
 
-Go to https://chat.deepseek.com (recommended), https://chatgpt.com, https://gemini.google.com, https://www.kimi.ai, https://chat.z.ai, https://chat.qwen.ai, https://arena.ai or https://www.meta.ai and open a new chat. The ZeroScript bar appears above the input box. Click **Start session**. Type what you want to build.
+### Step 1: Install opencode
 
-> Only works on chat.deepseek.com, chatgpt.com, gemini.google.com, kimi.ai, chat.z.ai, chat.qwen.ai, arena.ai and meta.ai - it will not work on any other site.
-> On Arena, keep the mode dropdown on **Direct** - ZeroScript blocks Start in Battle / Side-by-Side / Agent modes (it only drives a single Direct reply).
-> Gemini and Kimi can be unstable (model behavior, not the extension): Gemini may stop using the Roblox tools after a while, and Kimi may use its own native tools instead. If the AI starts answering in plain text instead of acting, remind it to use the commands or start a new session.
-### 5. Watch the setup tutorial
+https://opencode.ai
 
-[Watch the setup tutorial on YouTube](https://youtu.be/kPKiZLZ9_Ps)
+```bash
+# macOS / Linux
+curl -fsSL https://opencode.ai/install | bash
 
-## What the AI can do
+# or npm
+npm i -g opencode-ai
+```
 
-- Read and edit scripts
-- Run Luau code directly in Studio
-- Inspect the game tree and instances
-- Generate meshes, materials, and models
-- Browse and insert from the Creator Store
-- Control play-testing
-- **Remember your project across sessions** persistent project memory saved inside your place
+Verify:
 
-## New in 1.5.5
+```bash
+opencode --version
+```
 
-- **DeepSeek: the agent starts again on the new unified model.** DeepSeek merged Instant, Expert and Vision into one model and removed the model picker, which left "Start Roblox agent" stuck on "DeepSeek mode not ready". ZeroScript now recognises the new chat box, switches Search off and starts, with DeepThink left on.
-- **DeepSeek: screenshots work on every chat.** Images no longer need the Vision tab (it is gone) - the unified model sees your Studio captures, one at a time or several in a row.
+### Step 2: Start ZeroAPI + DeepSeek
 
-## New in 1.5.4
+1. Run server: `python zeroapi.py` or `start_api.bat`
+2. Load extension in browser
+3. Open https://chat.deepseek.com, log in, make sure tab shows `ZeroAPI [deepseek] Active`
+4. Check dashboard http://localhost:8000/ — should show 1 browser connected, provider `deepseek`
 
-- **ChatGPT: the ZeroScript bar is back above the composer.** ChatGPT redesigned its input box and renamed the layout slot the bar sits in. ZeroScript kept asking for the old name, so the browser dropped the bar into a stray strip at the bottom right of the composer and squeezed the text field to nothing. The bar now takes the right row again, and it reads the layout live instead of trusting a fixed name, so the next redesign should not knock it out.
-- **ChatGPT: long commands read cleanly on the new interface.** The same redesign replaced the code-block editor that used to hide line breaks and cut long lines off - the cause of the truncated commands fixed in 1.5.1. A 400-line block now reads back whole. If you are still on the old interface, the previous workaround is untouched.
+### Step 3: Configure opencode to use ZeroAPI
 
-## New in 1.5.3
+In your project root, create `opencode.json`:
 
-- **Kimi moved to kimi.ai.** The old address, kimi.com, now asks for a Chinese phone number to sign in, which locked most people out. Open https://www.kimi.ai instead - the page is unchanged, the bar appears above the input box exactly as before. Reopen any Kimi tab you had on the old address.
-- **DeepSeek: the Instant model can now run the agent.** Picking Instant used to leave "Start Roblox agent" spinning forever with no explanation, because only Expert and Vision were accepted. Choose Instant before starting and the session runs on it - much faster than Expert, without the reasoning pass. Images stay off on Instant just like on Expert; the Vision tab remains the only one that can see screenshots.
-- **DeepSeek: a reply written in DeepSeek's own tool-call format no longer kills the turn.** DeepSeek occasionally answers with its internal markup instead of a ZeroScript command. Nothing recognised it, so the tool never ran, the raw tags stayed on screen and the agent stopped dead with you waiting. It is now caught, hidden behind a tool chip like any other command, and DeepSeek is told to rewrite the call properly.
-- **ChatGPT: the bar no longer clips into the composer's rounded corners.**
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "zeroapi": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "ZeroAPI (local browser)",
+      "options": {
+        "baseURL": "http://localhost:8000/v1",
+        "apiKey": "zeroapi"
+      },
+      "models": {
+        "deepseek": {
+          "name": "DeepSeek"
+        }
+      }
+    }
+  }
+}
+```
 
-See [CHANGELOG.md](CHANGELOG.md) for older releases.
+Or use the example file from this repo:
 
-## Panel status
+```bash
+cp opencode.zeroapi.example.json opencode.json
+```
 
-| Dot | Meaning |
-|-----|---------|
-| Green | Bridge + Studio ready (a place is open) |
-| Yellow | Bridge OK, but Studio isn't usable yet - open Roblox Studio, load a place, or enable its MCP server (hover the dot for the exact reason) |
-| Grey | Bridge offline - run start.bat (Windows) or MacOS_Start.command (macOS) |
+If you want all models available, use this expanded version:
 
-## Requirements
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "zeroapi": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "ZeroAPI",
+      "options": {
+        "baseURL": "http://localhost:8000/v1",
+        "apiKey": "zeroapi"
+      },
+      "models": {
+        "deepseek": { "name": "DeepSeek" },
+        "chatgpt": { "name": "ChatGPT" },
+        "gemini": { "name": "Gemini" },
+        "auto": { "name": "Auto" }
+      }
+    }
+  },
+  "model": "zeroapi/deepseek"
+}
+```
 
-- Windows or macOS
-- Roblox Studio (MCP support built-in)
-- Microsoft Edge or Chrome
-- Python 3.9+ (installed automatically on Windows, or install it yourself on macOS - see [python.org/downloads](https://www.python.org/downloads/))
+Set default model:
 
-## Support
+```json
+{
+  "model": "zeroapi/deepseek"
+}
+```
 
-ZeroScript is free. If it saves you time: [Ko-fi](https://ko-fi.com/sebattfg) - Robux tip passes available in the extension panel
+### Step 4: Run opencode
 
----
+```bash
+opencode
+# or
+opencode run "Explain this codebase"
+```
 
-Credit: the idea for connecting other MCP servers (Blender, Sketchfab, etc.) alongside Roblox Studio came from [javnpa](https://github.com/javnpa).
+opencode will now:
 
-Credit: macOS/Linux support contributed by [archivealf](https://github.com/archivealf).
+1. Call `http://localhost:8000/v1/chat/completions` with `model: deepseek`
+2. ZeroAPI server forwards prompt to your DeepSeek browser tab via WebSocket
+3. Extension types prompt into chat.deepseek.com and reads response
+4. Response streams back to opencode as OpenAI-compatible chunks
+
+You should see streaming in opencode TUI, and in browser tab you will see messages appearing.
+
+### Step 5: Tips for DeepSeek
+
+- Keep DeepSeek tab visible (not minimized) — Chrome throttles background tabs
+- DeepSeek has strong reasoning, good for code. Use `deepseek` model id.
+- For files: opencode sends file context automatically, ZeroAPI injects them via `image_url` parts and auto-clears after.
+- If you request `gemini` but only `deepseek` tab open, ZeroAPI will use `deepseek` anyway (or auto-switch if you have both tabs open and auto-switch enabled).
+
+### Troubleshooting opencode
+
+- `No browser connected`: Make sure extension shows Active and server shows Browsers: 1
+- `Timeout`: DeepSeek may be thinking — wait 30s, check browser tab for errors
+- `Model not found`: Check `opencode.json` provider id matches `zeroapi` and model is `deepseek`
+- Browser tab not typing: Refresh chat.deepseek.com, click `Use this chat` again
+- Want public URL for remote opencode: enable tunnel in `zeroapi_config.json` (see Tunnels section)
+
+## Other Integrations
+
+### OpenAI Python SDK
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi")
+client.chat.completions.create(model="deepseek", messages=[{"role":"user","content":"hi"}])
+```
+
+### OpenWebUI
+
+Settings -> Connections -> OpenAI -> Base URL: `http://localhost:8000/v1`, API Key: `zeroapi`
+
+### LangChain
+
+```python
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(base_url="http://localhost:8000/v1", api_key="zeroapi", model="deepseek")
+```
+
+## Configuration
+
+`zeroapi_config.json`:
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 8000,
+  "api_key": "zeroapi",
+  "log_enabled": false,
+  "auto_switch_tabs": true,
+  "auto_focus_tab": true,
+  "notify_on_switch": true,
+  "tunnel_auto_detect": true,
+  "tunnel": {
+    "enabled": false,
+    "provider": "cloudflare",
+    "auto_start": false,
+    "port": null,
+    "subdomain": "",
+    "custom_command": "",
+    "extra_args": ""
+  },
+  "models": ["deepseek", "chatgpt", "gemini", "kimi", "glm", "qwen", "meta", "arena", "auto"]
+}
+```
+
+CLI args:
+
+```bash
+python zeroapi.py --port 8000 --api-key mykey --tunnel-provider cloudflare --tunnel-autostart
+python zeroapi.py --no-ui
+```
+
+Env vars:
+
+```bash
+ZEROAPI_PORT=8000 ZEROAPI_API_KEY=zeroapi ZEROAPI_TUNNEL_URL=https://xxx.trycloudflare.com python zeroapi.py
+```
+
+## Tunnels — Public URL
+
+Make local API public:
+
+```bash
+# Cloudflare (recommended)
+cloudflared tunnel --url http://localhost:8000
+
+# ngrok
+ngrok http 8000
+
+# localtunnel
+lt --port 8000
+
+# bore
+bore local 8000 --to bore.pub
+```
+
+Auto-detection: ZeroAPI auto-detects tunnel URLs from ngrok API (4040), cloudflared logs, env vars.
+
+Auto-start from config:
+
+```json
+{
+  "tunnel": {
+    "enabled": true,
+    "provider": "cloudflare",
+    "auto_start": true
+  }
+}
+```
+
+Providers: `cloudflare`, `ngrok`, `localtunnel`, `bore`, `custom`
+
+Then UI shows:
+
+```
+   Public:  https://abc.trycloudflare.com [cloudflare]
+            https://abc.trycloudflare.com/v1/chat/completions
+```
+
+Use public URL in opencode.json:
+
+```json
+{
+  "options": {
+    "baseURL": "https://abc.trycloudflare.com/v1",
+    "apiKey": "zeroapi"
+  }
+}
+```
+
+## API Endpoints
+
+- `GET /` — Dashboard
+- `GET /v1/models` — 9 simple models (site names)
+- `GET /v1/models/all` — 21 models with aliases
+- `GET /api/active-models` — active browsers
+- `GET /api/tunnels` — tunnels + autostart config
+- `POST /api/tunnels/start` — get start command for provider
+- `GET /health` — health, tunnels, providers, auto_switch
+- `GET /api/status` — status
+- `POST /v1/chat/completions` — OpenAI compatible, streaming supported
+- `POST /v1/completions` — legacy completions
+- `POST /v1/embeddings` — dummy embeddings (1536 dim)
+
+## How it Works
+
+```
+opencode / OpenAI Client
+      |
+      v
+ZeroAPI Server (FastAPI :8000) -- WebSocket :8000/ws
+      |
+      v
+Extension (content script + background)
+      |
+      v
+AI Chat Site (chat.deepseek.com, etc.)
+```
+
+Server selects browser tab by provider (model -> provider map). Extension uses provider-specific DOM logic to type prompt and read response. Streaming via incremental text diff.
+
+## Development
+
+```bash
+pip install -r requirements.txt
+python tests/test_server.py
+python zeroapi.py --reload
+```
+
+## License
+
+GPL-3.0 — Based on ZeroScript by sebattfg

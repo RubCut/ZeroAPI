@@ -1,20 +1,30 @@
-﻿# Local-only folders
-Compressed/
-Deprecated/
-ExtensionPresentation/
-presentation/
-docs/
-
-# Zip files
-*.zip
-
-# Local dev / diagnostic tools
-probe.py
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+.env.local
+*.log
 logs/
-devtools/
 
-# System files
+# Build
+dist/
+build/
+*.zip
+Compressed/
+
+# System
 .DS_Store
 Thumbs.db
 desktop.ini
-__pycache__/
+
+# ZeroAPI
+server/__pycache__/
+examples/__pycache__/
+node_modules/
+
+# Local dev
+probe.py
+devtools/
