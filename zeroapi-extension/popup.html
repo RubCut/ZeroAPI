@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    body { width: 340px; margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #0e121f; color: #e8e8ec; }
+    .wrap { padding: 16px; }
+    h1 { font-size: 15px; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; font-weight: 700; }
+    .ver { font-size: 10px; font-weight: 500; opacity: 0.5; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #6b7280; flex: none; }
+    .dot.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
+    .dot.api { background: #60a5fa; box-shadow: 0 0 8px #60a5fa; }
+    .dot.api.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
+    .dot.busy { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+    .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; margin: 10px 0; }
+    .row { font-size: 12px; line-height: 1.45; margin: 5px 0; }
+    .row.small { font-size: 11px; opacity: 0.65; }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 10px; font-weight: 600; }
+    .badge.ok { background: rgba(52,211,153,0.15); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.25); }
+    .badge.warn { background: rgba(251,191,36,0.15); color: #fcd34d; border: 1px solid rgba(251,191,36,0.25); }
+    .badge.off { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.2); }
+    button { width: 100%; margin-top: 8px; padding: 10px 12px; border: 0; border-radius: 8px; cursor: pointer; font-size: 12.5px; font-weight: 600; transition: all 0.15s; }
+    button:hover { transform: translateY(-0.5px); }
+    .primary { background: linear-gradient(135deg, #3b82f6, #60a5fa); color: white; box-shadow: 0 2px 10px rgba(59,130,246,0.35); }
+    .primary.active { background: linear-gradient(135deg, #059669, #34d399); box-shadow: 0 2px 10px rgba(52,211,153,0.35); }
+    .ghost { background: rgba(255,255,255,0.06); color: #e8e8ec; border: 1px solid rgba(255,255,255,0.08); }
+    .ghost:hover { background: rgba(255,255,255,0.1); }
+    .success { background: rgba(52,211,153,0.12); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.25); }
+    code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+    .tabs { max-height: 160px; overflow-y: auto; margin: 8px 0; }
+    .tab-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 7px; background: rgba(255,255,255,0.04); margin: 4px 0; cursor: pointer; border: 1px solid transparent; }
+    .tab-item:hover { background: rgba(255,255,255,0.07); border-color: rgba(96,165,250,0.2); }
+    .tab-item.active { background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.3); }
+    .tab-item .prov { font-size: 10px; padding: 2px 5px; border-radius: 4px; background: rgba(96,165,250,0.15); color: #93c5fd; }
+    .tab-item .url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; opacity: 0.7; }
+    .compat { background: rgba(96,165,250,0.08); border: 1px dashed rgba(96,165,250,0.25); border-radius: 8px; padding: 8px 10px; margin: 8px 0; font-size: 11px; }
+    .settings { background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.15); border-radius: 10px; padding: 12px; margin: 10px 0; }
+    .toggle { display: flex; align-items: center; justify-content: space-between; margin: 6px 0; font-size: 12px; }
+    .toggle input { width: 36px; height: 20px; appearance: none; background: rgba(255,255,255,0.15); border-radius: 10px; position: relative; cursor: pointer; transition: all 0.2s; }
+    .toggle input:checked { background: #34d399; }
+    .toggle input::before { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: white; top: 2px; left: 2px; transition: all 0.2s; }
+    .toggle input:checked::before { left: 18px; }
+    .toggle label { flex: 1; }
+    .toggle .hint { font-size: 10px; opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1><span id="dot" class="dot"></span> ZeroAPI <span id="ver" class="ver"></span> <span style="font-size:10px;opacity:0.5;font-weight:500">OpenAI API</span></h1>
+    
+    <div class="card">
+      <div class="row" id="api-state">API Server: checking...</div>
+      <div class="row small" id="active-tab">Active chat: none</div>
+      <div class="row small" id="compat-note"></div>
+    </div>
+
+    <div class="settings" id="settings-box">
+      <div class="row" style="font-weight:600;margin-bottom:8px">⚙️ Auto-switch settings</div>
+      <div class="toggle">
+        <label>🔄 Auto-switch tabs<br><span class="hint">Switch when different model requested</span></label>
+        <input type="checkbox" id="toggle-auto-switch" checked>
+      </div>
+      <div class="toggle">
+        <label>👁️ Auto-focus tab<br><span class="hint">Focus tab when switching</span></label>
+        <input type="checkbox" id="toggle-auto-focus" checked>
+      </div>
+      <div class="toggle">
+        <label>🔔 Notify on switch<br><span class="hint">Show toast when switching</span></label>
+        <input type="checkbox" id="toggle-notify" checked>
+      </div>
+      <div class="row small" id="switch-info" style="margin-top:8px;opacity:0.7">When you request <code>gemini</code> but active is <code>deepseek</code>, extension will auto-switch to Gemini tab if open.</div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="font-weight:600;margin-bottom:6px">💬 Available chats</div>
+      <div id="tabs-list" class="tabs"><div class="row small">Scanning tabs...</div></div>
+      <button class="primary" id="use-active">📌 Use this chat for API</button>
+      <div class="row small" style="margin-top:6px">Click a tab above or use current tab. With auto-switch ON, tabs switch automatically when different model requested.</div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="font-weight:600">🔌 API</div>
+      <div class="row small" id="endpoint">http://localhost:8000/v1/chat/completions</div>
+      <button class="ghost" id="open-dashboard">📊 Open Dashboard</button>
+      <button class="ghost" id="open-docs">📚 API Docs</button>
+      <button class="ghost" id="reconnect">↻ Reconnect to server</button>
+    </div>
+
+    <div class="compat" id="compat-box">
+      <b>🔗 ZeroScript compatibility:</b> <span id="zs-detect">checking...</span><br>
+      <span class="small">ZeroAPI uses <code>za-</code> prefix, ZeroScript uses <code>zs-</code> — they can run side-by-side. Bars stack vertically.</span>
+    </div>
+
+    <div class="row small" style="margin-top:10px;opacity:0.6">
+      <b>Quick start:</b> 1. Run <code>python run_server.py</code> 2. Open chat & click "Use this chat" 3. SDK: <code>base_url=http://localhost:8000/v1</code>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

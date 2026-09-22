@@ -1,0 +1,57 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "zeroapi": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "ZeroAPI (local browser)",
+      "options": {
+        "baseURL": "http://localhost:8000/v1",
+        "apiKey": "dummy"
+      },
+      "models": {
+        "deepseek": {
+          "name": "DeepSeek"
+        },
+        "chatgpt": {
+          "name": "ChatGPT"
+        },
+        "gemini": {
+          "name": "Gemini"
+        },
+        "kimi": {
+          "name": "Kimi K2"
+        },
+        "glm": {
+          "name": "GLM-4"
+        },
+        "qwen": {
+          "name": "Qwen Turbo"
+        },
+        "meta": {
+          "name": "Meta AI"
+        },
+        "arena": {
+          "name": "Arena"
+        },
+        "auto": {
+          "name": "Auto (any active tab)"
+        },
+        "deepseek-chat": {
+          "name": "DeepSeek Chat (alias)"
+        },
+        "deepseek-reasoner": {
+          "name": "DeepSeek Reasoner (alias)"
+        },
+        "gpt-4o": {
+          "name": "GPT-4o (alias)"
+        },
+        "gpt-4o-mini": {
+          "name": "GPT-4o Mini (alias)"
+        },
+        "gemini-2.0-flash": {
+          "name": "Gemini 2.0 Flash (alias)"
+        }
+      }
+    }
+  }
+}
