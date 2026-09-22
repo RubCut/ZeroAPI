@@ -89,6 +89,7 @@ HOLD_MARKERS: Tuple[str, ...] = (
     "```toolcall",
     "```function",
     "```tools",
+    "jsonCopyDownload(",
     "<|tool_call|>",
     "<\uff5ctool\u2581call",  # DeepSeek DSML: <｜tool▁call▁begin｜>
     "<dsml",
@@ -101,6 +102,11 @@ _FENCE_RE = re.compile(
 _TAG_RE = re.compile(re.escape(TAG_OPEN) + r"\s*(?P<body>.*?)\s*" + re.escape(TAG_CLOSE), re.S)
 _PIPE_TAG_RE = re.compile(r"<\|tool_call\|>\s*(?P<body>.*?)\s*<\|/tool_call\|>", re.S)
 _MCP_RE = re.compile(re.escape(MCP_OPEN) + r"\s*(?P<body>.*?)\s*(?:" + MCP_CLOSE_RE.pattern + r"|$)", re.S)
+# Some browser markdown renderers expose the code-block toolbar helper as text
+# (for example ``jsonCopyDownload({...})``). It is not a protocol envelope, but
+# the JSON inside is still a valid ZeroAPI tool call. The parser unwraps it so
+# that this UI artefact never reaches the OpenAI client.
+_JSON_WRAPPER_RE = re.compile(r"\bjsonCopyDownload\s*\(", re.I)
 # DeepSeek DSML: <｜tool▁call▁begin｜>function<｜tool▁sep｜>name ... json ... <｜tool▁call▁end｜>
 _DSML_RE = re.compile(
     r"<\uff5ctool\u2581call\u2581begin\uff5c>.*?(?:<\uff5ctool\u2581sep\uff5c>|function)\s*"
@@ -402,6 +408,18 @@ def parse_tool_calls(text: str, tools: Optional[Sequence[Dict[str, Any]]] = None
             for item in _split_payload(payload):
                 call = _normalize_call(item, known)
                 if call:
+                    fn = call.get("function") or {}
+                    key = (fn.get("name"), fn.get("arguments"))
+                    # Browser markdown sometimes repeats the same helper text
+                    # several times while the DOM settles. Do not turn that
+                    # rendering artefact into duplicate tool executions.
+                    duplicate = any(
+                        (c.get("function") or {}).get("name") == key[0]
+                        and (c.get("function") or {}).get("arguments") == key[1]
+                        for c in calls
+                    )
+                    if duplicate:
+                        continue
                     calls.append(call)
                     added = True
         if added:
@@ -413,6 +431,26 @@ def parse_tool_calls(text: str, tools: Optional[Sequence[Dict[str, Any]]] = None
             if any(s <= span[0] < e or s < span[1] <= e for s, e in spans):
                 continue
             consume(match.group("body"), span)
+
+    # DeepSeek can expose a markdown code-block helper as literal text instead
+    # of returning a clean fenced block. Unwrap every jsonCopyDownload({...})
+    # occurrence, including several concatenated calls in one answer.
+    for match in _JSON_WRAPPER_RE.finditer(raw):
+        tail = raw[match.end() :]
+        found = _find_balanced_json(tail)
+        if found is None:
+            continue
+        value, _start, end = found
+        object_end = match.end() + end
+        span_end = object_end + (1 if raw[object_end : object_end + 1] == ")" else 0)
+        span = (match.start(), span_end)
+        if any(s <= span[0] < e or s < span[1] <= e for s, e in spans):
+            continue
+        try:
+            body = json.dumps(value, ensure_ascii=False)
+        except Exception:
+            continue
+        consume(body, span)
 
     if not calls:
         for match in _DSML_RE.finditer(raw):

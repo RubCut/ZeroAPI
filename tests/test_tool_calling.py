@@ -112,12 +112,19 @@ def test_parse_shapes():
         ('###mcp_tool### {"tool": "bash", "parameters": {"command": "pwd"}} ###end_mcp_tool###', "bash"),
         ('{"function": {"name": "read", "arguments": {"path": "x"}}}', "read"),
         ('Text first.\n```json\n{"name": "bash", "args": {"command": "id"}}\n```', "bash"),
+        ('jsonCopyDownload({"name": "bash", "arguments": {"command": "pwd"}})', "bash"),
     ]
     for text, expected in cases:
         parsed = parse_tool_calls(text, TOOLS)
         assert parsed.has_calls, f"no calls parsed from {text!r}"
         assert parsed.tool_calls[0]["function"]["name"] == expected
-    print("✓ parser handles all tool-call shapes")
+    repeated = parse_tool_calls(
+        'jsonCopyDownload({"name":"bash","arguments":{"command":"pwd"}})'
+        'jsonCopyDownload({"name":"bash","arguments":{"command":"pwd"}})',
+        TOOLS,
+    )
+    assert len(repeated.tool_calls) == 1
+    print("✓ parser handles all tool-call shapes and deduplicates DOM repeats")
 
     # prose without a tool call stays prose
     parsed = parse_tool_calls("Nothing to run here, all done.", TOOLS)

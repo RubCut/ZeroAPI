@@ -229,7 +229,7 @@ You should see streaming in opencode TUI, and in browser tab you will see messag
 - `No browser connected`: Make sure extension shows Active and server shows Browsers: 1
 - `Timeout`: DeepSeek may be thinking — wait 30s, check browser tab for errors
 - `Model not found`: Check `opencode.json` provider id matches `zeroapi` and model is `deepseek`
-- Tools not running: ZeroAPI translates the browser answer into OpenAI `tool_calls`; if opencode shows the tool JSON as plain text, check `GET /health` -> `browsers_connected` and make sure the tool block is written as a fenced ```json block (see "Tool Calling")
+- Tools not running / raw `jsonCopyDownload(...)` appears: ZeroAPI unwraps this DeepSeek markdown artefact and converts it into OpenAI `tool_calls`. Check `GET /health` -> `browsers_connected` and make sure the requested tool is included in the API request (see "Tool Calling").
 - Browser tab not typing: Refresh chat.deepseek.com, click `Use this chat` again
 - Want public URL for remote opencode: enable tunnel in `zeroapi_config.json` (see Tunnels section)
 
