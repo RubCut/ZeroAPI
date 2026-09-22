@@ -35,8 +35,10 @@ class ChatCompletionRequest(BaseModel):
     user: Optional[str] = None
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    parallel_tool_calls: Optional[bool] = None
     # OpenAI extras that AI News plugin sends
     response_format: Optional[Dict[str, Any]] = None
+    stream_options: Optional[Dict[str, Any]] = None
     # ZeroAPI extensions
     provider: Optional[str] = None  # force specific provider
     session_id: Optional[str] = None  # continue conversation in same tab

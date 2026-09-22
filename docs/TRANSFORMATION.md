@@ -134,7 +134,7 @@ OpenAI Client -> ZeroAPI Server (FastAPI :8000) -> WebSocket -> Extension -> AI 
 
 ### Что можно улучшить дальше:
 
-- Tool calling: если запрос содержит `tools`, парсить ответ AI через ZSParse и выполнять MCP tools, затем продолжать чат
+- ~~Tool calling~~ **сделано**: `server/tool_calling.py` эмулирует OpenAI tool calling - спеки тулов уходят в промпт, ответ модели парсится в `tool_calls`, результаты `role="tool"` возвращаются в промпт (`[Tool result: name]`). MCP-серверы читаются из `zeroapi_config.json` (`mcp_servers`), при `mcp_tools.auto_execute` сервер сам исполняет MCP-вызовы и продолжает диалог; `GET /v1/tools`, `GET /api/tools`, `POST /api/tool/call`.
 - Session persistence: сохранять conversation history по session_id в одной вкладке
 - Vision: поддержка image input (screen_capture уже есть в ZeroScript)
 - Auth: API key проверка

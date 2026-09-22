@@ -1,6 +1,18 @@
 """
 MCP Manager - simplified version from original bridge.py
 Keeps compatibility for tool execution if needed.
+
+MCP servers are read from (first file that defines them wins):
+  1. zeroapi_config.json -> "mcp_servers" | "mcpServers"
+  2. config.json         -> "mcpServers" (legacy ZeroScript layout)
+
+Example zeroapi_config.json:
+    {
+      "mcp_servers": {
+        "roblox": {"command": "python", "args": ["roblox_mcp_server.py"]}
+      },
+      "mcp_tools": {"enabled": true, "auto_execute": true, "max_rounds": 5}
+    }
 """
 import asyncio
 import json
@@ -10,10 +22,11 @@ import sys
 import threading
 import time
 import queue
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(HERE, "config.json")
+CONFIG_PATH = os.path.join(HERE, "zeroapi_config.json")
+LEGACY_CONFIG_PATH = os.path.join(HERE, "config.json")
 
 PRIMARY_SERVER_ID = "roblox"
 
@@ -69,6 +82,8 @@ class MCPClient:
             except Exception as e:
                 print(f"[{self.id}] failed to start: {e}")
                 raise
+            if self.proc is None:
+                return
             with self.pend_lock:
                 self.pending.clear()
             self._reader_thread = threading.Thread(target=self._reader, args=(self.proc,), daemon=True)
@@ -91,6 +106,16 @@ class MCPClient:
         return self.proc is not None and self.proc.poll() is None
 
     def stop(self):
+        # serialize against start() so a restart cannot race the shutdown
+        acquired = self.start_lock.acquire(timeout=10)
+        try:
+            self._stop_locked()
+        finally:
+            if acquired:
+                self.start_lock.release()
+
+    def _stop_locked(self):
+        proc = self.proc
         with self.pend_lock:
             for q in self.pending.values():
                 try:
@@ -98,15 +123,15 @@ class MCPClient:
                 except:
                     pass
             self.pending.clear()
-        if self.proc:
+        self.proc = None
+        if proc:
             try:
                 if sys.platform == "win32":
-                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=8)
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=8)
                 else:
-                    self.proc.terminate()
-            except:
+                    proc.terminate()
+            except Exception:
                 pass
-        self.proc = None
 
     def _reader(self, proc):
         stream = proc.stdout
@@ -150,12 +175,19 @@ class MCPClient:
 
     def _notify(self, method, params=None):
         payload = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+        proc = self.proc
+        if proc is None or proc.stdin is None:
+            return
         with self.write_lock:
-            self.proc.stdin.write(json.dumps(payload) + "\n")
-            self.proc.stdin.flush()
+            try:
+                proc.stdin.write(json.dumps(payload) + "\n")
+                proc.stdin.flush()
+            except Exception as e:
+                print(f"[{self.id}] notify {method} failed: {e}")
 
     def _request(self, method, params, timeout):
-        if not self.is_alive():
+        proc = self.proc
+        if proc is None or proc.poll() is not None or proc.stdin is None:
             raise RuntimeError(f"server '{self.id}' is not running")
         rid = self._next_id()
         q = queue.Queue(maxsize=1)
@@ -164,8 +196,10 @@ class MCPClient:
         try:
             payload = {"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}}
             with self.write_lock:
-                self.proc.stdin.write(json.dumps(payload) + "\n")
-                self.proc.stdin.flush()
+                if self.proc is not proc:
+                    raise RuntimeError(f"server '{self.id}' was restarted, request dropped")
+                proc.stdin.write(json.dumps(payload) + "\n")
+                proc.stdin.flush()
             try:
                 return q.get(timeout=timeout)
             except queue.Empty:
@@ -199,18 +233,62 @@ class MCPManager:
         self.clients: Dict[str, MCPClient] = {}
         self.index = {}
         self.index_lock = threading.Lock()
+        self.settings: Dict[str, Any] = {}
+        self.load_errors: List[str] = []
+
+    def _servers_from_file(self, path) -> Optional[Dict[str, Any]]:
+        """Return the MCP server dict from a config file, or None if absent."""
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception as e:
+            self.load_errors.append(f"{os.path.basename(path)}: {e}")
+            print(f"[mcp] config load error in {path}: {e}")
+            return None
+        if not isinstance(cfg, dict):
+            return None
+        mcp_cfg = cfg.get("mcp_tools") if isinstance(cfg.get("mcp_tools"), dict) else {}
+        if mcp_cfg:
+            self.settings.update(mcp_cfg)
+        for key in ("mcp_servers", "mcpServers"):
+            servers = cfg.get(key)
+            if isinstance(servers, dict) and servers:
+                return servers
+        return None
 
     def load_config(self):
-        if os.path.exists(CONFIG_PATH):
-            try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                servers = cfg.get("mcpServers", {})
-                for sid, spec in servers.items():
-                    self.clients[sid] = MCPClient(sid, spec.get("command"), spec.get("args"), spec.get("env"))
-            except Exception as e:
-                print(f"config load error: {e}")
-        print(f"configured {len(self.clients)} MCP server(s)")
+        """Load MCP server definitions plus tool settings from the config files."""
+        self.load_errors = []
+        servers = self._servers_from_file(CONFIG_PATH)
+        if servers is None:
+            servers = self._servers_from_file(LEGACY_CONFIG_PATH)
+        for sid, spec in (servers or {}).items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("disabled") or spec.get("enabled") is False:
+                continue
+            self.clients[sid] = MCPClient(sid, spec.get("command"), spec.get("args"), spec.get("env"))
+        self.settings.setdefault("enabled", True)
+        self.settings.setdefault("auto_execute", True)
+        self.settings.setdefault("max_rounds", 5)
+        print(f"[mcp] configured {len(self.clients)} MCP server(s) from {os.path.basename(CONFIG_PATH)}")
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.clients) and bool(self.settings.get("enabled", True))
+
+    @property
+    def auto_execute(self) -> bool:
+        return self.enabled and bool(self.settings.get("auto_execute", True))
+
+    @property
+    def max_rounds(self) -> int:
+        try:
+            return max(1, int(self.settings.get("max_rounds", 5)))
+        except Exception:
+            return 5
 
     def start_all(self):
         threads = []
@@ -238,7 +316,20 @@ class MCPManager:
                     advertised = name if name not in self.index else f"{sid}/{name}"
                     self.index[advertised] = (client, name)
 
+    def refresh(self) -> None:
+        """Pull the tool list from every live server that has no cache yet."""
+        for client in self.clients.values():
+            if not client.is_alive() or client.tools_cache:
+                continue
+            try:
+                client.refresh_tools(timeout=5)
+            except Exception:
+                pass
+        self.rebuild_index()
+
     def list_tools(self):
+        if any(not c.tools_cache for c in self.clients.values()):
+            self.refresh()
         out = []
         for sid, client in self.clients.items():
             for t in (client.tools_cache or []):
@@ -255,6 +346,39 @@ class MCPManager:
                 out.append(tt)
         return out
 
+    def openai_tools(self) -> List[Dict[str, Any]]:
+        """Tool definitions in the OpenAI ``tools`` wire format."""
+        out: List[Dict[str, Any]] = []
+        for tool in self.list_tools():
+            name = tool.get("name")
+            if not name:
+                continue
+            schema = tool.get("inputSchema") or tool.get("input_schema") or tool.get("parameters") or {}
+            if not isinstance(schema, dict):
+                schema = {}
+            schema.setdefault("type", "object")
+            schema.setdefault("properties", {})
+            out.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": tool.get("description") or f"MCP tool from server '{tool.get('server')}'",
+                    "parameters": schema,
+                },
+            })
+        return out
+
+    def names(self) -> List[str]:
+        return [t["function"]["name"] for t in self.openai_tools()]
+
+    def is_mcp_tool(self, name: str) -> bool:
+        with self.index_lock:
+            has_index = bool(self.index)
+        if not has_index:
+            self.rebuild_index()
+        with self.index_lock:
+            return name in self.index
+
     def call(self, name, arguments, timeout):
         with self.index_lock:
             entry = self.index.get(name)
@@ -268,6 +392,14 @@ class MCPManager:
         return holder.call_tool(real_name, arguments, timeout)
 
     def health(self):
-        return [{"id": sid, "alive": c.is_alive(), "tools": len(c.tools_cache)} for sid, c in self.clients.items()]
+        out = []
+        for sid, c in self.clients.items():
+            out.append({
+                "id": sid,
+                "alive": c.is_alive(),
+                "tools": len(c.tools_cache),
+                "tool_names": [t.get("name") for t in (c.tools_cache or [])],
+            })
+        return out
 
 mcp_manager = MCPManager()
