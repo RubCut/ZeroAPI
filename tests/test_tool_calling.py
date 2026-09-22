@@ -23,8 +23,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fastapi.testclient import TestClient
 
-from server.main import app
-from server.tool_calling import ToolCallStreamFilter, build_tool_instructions, parse_tool_calls
+from server.main import app, messages_to_prompt_and_files
+from server.openai_models import ChatMessage
+from server.tool_calling import (
+    ToolCallStreamFilter,
+    build_tool_instructions,
+    parse_tool_calls,
+    strip_opencode_instructions,
+)
 
 TOOLS = [
     {
@@ -44,6 +50,26 @@ TOOLS = [
         },
     },
 ]
+
+
+# ── Prompt cleanup ────────────────────────────────────────────────────────────
+
+
+def test_opencode_system_prompt_is_not_forwarded():
+    opencode = (
+        "You are an AI agent running in OpenCode.\\n"
+        "# Harness\\n"
+        "# Communication\\n"
+        "Use the tools available to you."
+    )
+    assert strip_opencode_instructions(opencode) == ""
+    prompt, _ = messages_to_prompt_and_files([
+        ChatMessage(role="system", content=opencode),
+        ChatMessage(role="user", content="hello"),
+    ])
+    assert "OpenCode" not in prompt
+    assert "User: hello" in prompt
+    print("✓ OpenCode harness instructions are removed from browser prompts")
 
 
 # ── Fake browser ─────────────────────────────────────────────────────────────

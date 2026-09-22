@@ -71,6 +71,35 @@ def add_zeroapi_first_message_prompt(
     return f"{ZEROAPI_FIRST_MESSAGE_PROMPT}\n\n{prompt}"
 
 
+def strip_opencode_instructions(text: str) -> str:
+    """Remove the OpenCode harness prompt from a browser-facing system message.
+
+    OpenCode sends its full agent/harness instructions as a ``system`` message
+    on every API request. The browser model does not need that second harness;
+    ZeroAPI supplies its own short context and tool protocol. Keeping the
+    OpenCode block also makes it appear repeatedly in the browser conversation.
+    """
+    value = text or ""
+    match = re.search(
+        r"(?:^|\n)\s*(?:\[System Instructions\]:\s*)?"
+        r"You are an AI agent running in OpenCode\b",
+        value,
+        re.I,
+    )
+    if match:
+        return value[: match.start()].rstrip()
+
+    lower = value.lower()
+    if "opencode" in lower and (
+        "# harness" in lower
+        or "# communication" in lower
+        or "code mode" in lower
+        or "current conversation session id" in lower
+    ):
+        return ""
+    return value
+
+
 # ── Call envelope markers ────────────────────────────────────────────────────
 # Every shape we can recognise. The first one is what we teach the model to use.
 TAG_OPEN = "<tool_call>"

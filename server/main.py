@@ -35,6 +35,7 @@ from .tool_calling import (
     render_assistant_tool_calls,
     render_tool_result,
     add_zeroapi_first_message_prompt,
+    strip_opencode_instructions,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -260,7 +261,13 @@ def messages_to_prompt_and_files(messages: List[ChatMessage]) -> tuple[str, list
         if files:
             all_files.extend(files)
         if role == "system":
-            all_texts.append(f"[System Instructions]: {txt}")
+            # OpenCode sends its full harness prompt on every request. It is
+            # meant for the OpenCode-side agent, not for the browser model, and
+            # would otherwise be typed into the chat repeatedly. Keep other
+            # caller-provided system text intact.
+            txt = strip_opencode_instructions(txt)
+            if txt:
+                all_texts.append(f"[System Instructions]: {txt}")
         elif role == "user":
             all_texts.append(f"User: {txt}")
         elif role == "assistant":

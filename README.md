@@ -276,7 +276,9 @@ recognized, so accidental text cannot appear before the separate tool-call messa
 Several calls in one tool-only message are supported (parallel calls), and
 `tool_choice: "none" | "auto" | "required" | {"function": ...}` is honoured.
 The first request in a conversation also receives a short ZeroAPI context prompt;
-later requests do not receive it again once assistant/tool history is present.
+later requests do not receive it again once assistant/tool history is present. The
+large OpenCode harness/system prompt is filtered out before it reaches the browser
+chat, so it is not duplicated on every turn.
 
 ```python
 from openai import OpenAI

@@ -314,6 +314,9 @@ Notes:
 - The first request in a conversation receives a short ZeroAPI context because
   browser chats do not expose a native system-message channel. It is not added
   again after an assistant/tool message is present.
+- OpenCode's large harness/system prompt is recognized and removed from the
+  browser-facing prompt; the browser model receives ZeroAPI's compact tool
+  instructions instead of a duplicated OpenCode tool protocol.
 - MCP: `GET /v1/tools` lists configured MCP tools in OpenAI format, and when a
   request carries no `tools` while `mcp_servers` are configured, the server injects
   them and executes the calls itself (`mcp_tools.auto_execute`).
