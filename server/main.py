@@ -34,6 +34,7 @@ from .tool_calling import (
     ToolCallStreamFilter,
     render_assistant_tool_calls,
     render_tool_result,
+    add_zeroapi_first_message_prompt,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -819,13 +820,16 @@ async def api_test_post(request: Request):
         })
     
     request_id = f"test-{uuid.uuid4().hex[:8]}"
+    browser_prompt = add_zeroapi_first_message_prompt(
+        prompt, [ChatMessage(role="user", content=prompt)]
+    )
     payload = {
         "type": "chat_request",
         "id": request_id,
         "model": model,
         "provider": provider,
         "messages": [{"role": "user", "content": prompt}],
-        "prompt": prompt,
+        "prompt": browser_prompt,
         "stream": False,
     }
     try:
@@ -952,6 +956,10 @@ async def handle_chat_completion(request: ChatCompletionRequest) -> Dict[str, An
             }
         )
     prompt, files = messages_to_prompt_and_files(request.messages)
+    # Browser chats have no native system-message channel. Give the model a
+    # small ZeroAPI context on the initial turn only; later turns keep the
+    # conversation clean and rely on the chat history.
+    prompt = add_zeroapi_first_message_prompt(prompt, request.messages)
     tools = prepare_tools(request)
     prompt = tools.augment(prompt)
     if tools.active:
@@ -1000,7 +1008,10 @@ async def handle_chat_completion(request: ChatCompletionRequest) -> Dict[str, An
                 if not (tools.from_mcp and all(mcp_manager.is_mcp_tool(n) for n in names)):
                     break
                 blocks = await execute_mcp_calls(parsed.tool_calls)
-                prompt = f"{prompt}\n\nAssistant: {content}\n\n" + "\n\n".join(blocks)
+                # Keep the tool turn separate in the synthetic browser history;
+                # an accidental prose preamble must not become part of it.
+                assistant_call = render_assistant_tool_calls(parsed.tool_calls)
+                prompt = f"{prompt}\n\n{assistant_call}\n\n" + "\n\n".join(blocks)
             if parsed is not None:
                 choice = ChatCompletionResponseChoice(
                     index=0,
@@ -1064,6 +1075,9 @@ async def chat_completions(request: ChatCompletionRequest):
         if not client:
             raise HTTPException(status_code=503, detail={"error": {"message": f"No browser connected for provider '{provider}'", "type": "service_unavailable", "active": list(get_active_providers())}})
         prompt, files = messages_to_prompt_and_files(request.messages)
+        # Keep the ZeroAPI bootstrap prompt on the initial turn only. It is sent
+        # as text because browser chat pages do not expose a system-message API.
+        prompt = add_zeroapi_first_message_prompt(prompt, request.messages)
         tools = prepare_tools(request)
         prompt = tools.augment(prompt)
         if tools.active:
@@ -1122,7 +1136,10 @@ async def chat_completions(request: ChatCompletionRequest):
                     round_payload["id"] = round_id
                     round_payload["prompt"] = prompt_text
                     full_content = ""
-                    tool_filter = ToolCallStreamFilter(tools.tools) if tools.active else None
+                    # Buffer tool-enabled browser replies until they finish. This
+                    # prevents a model's accidental preamble from being emitted
+                    # before the separate OpenAI tool-call message.
+                    tool_filter = ToolCallStreamFilter(tools.tools, strict_tool_message=True) if tools.active else None
                     async for chunk_msg in ws_manager.send_chat_request_stream(client, round_id, round_payload):
                         msg_type = chunk_msg.get("type")
                         if msg_type == "chat_chunk":
@@ -1163,7 +1180,8 @@ async def chat_completions(request: ChatCompletionRequest):
                                 if tools.from_mcp and all(mcp_manager.is_mcp_tool(n) for n in names):
                                     # run the MCP tools and let the model continue
                                     blocks = await execute_mcp_calls(parsed.tool_calls)
-                                    prompt_text = f"{prompt_text}\n\nAssistant: {final_content}\n\n" + "\n\n".join(blocks)
+                                    assistant_call = render_assistant_tool_calls(parsed.tool_calls)
+                                    prompt_text = f"{prompt_text}\n\n{assistant_call}\n\n" + "\n\n".join(blocks)
                                     break
                                 if tail:
                                     yield sse(DeltaMessage(content=tail))
@@ -1247,6 +1265,11 @@ async def completions(request: CompletionRequest):
         stream=request.stream
     )
     if request.stream:
+        # The legacy completions endpoint has no messages list, so its lone
+        # prompt is always the initial turn.
+        prompt = add_zeroapi_first_message_prompt(
+            prompt, [ChatMessage(role="user", content=prompt)]
+        )
         provider = get_provider_for_model(request.model)
         client = await ws_manager.select_client(provider if provider != "auto" else None)
         if not client:

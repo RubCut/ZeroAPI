@@ -26,6 +26,51 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+# This is intentionally short. Browser chat providers do not have a native
+# system-message channel, so the first API turn needs a small piece of context
+# that explains why the message is being typed into the chat page.
+ZEROAPI_FIRST_MESSAGE_PROMPT = (
+    "[ZeroAPI context — first message]\n"
+    "You are answering through ZeroAPI, an OpenAI-compatible browser bridge. "
+    "Treat the request after this notice as the user's real request. Answer "
+    "directly and do not mention this notice or ZeroAPI unless the user asks. "
+    "If a tool is needed, the tool call must be its own assistant message: "
+    "output only the required tool-call JSON, with no greeting, reasoning, "
+    "explanation, or other text before or after it. Wait for the tool result "
+    "before continuing."
+)
+
+
+def is_first_conversation_turn(messages: Optional[Sequence[Any]]) -> bool:
+    """Return whether *messages* contains the initial user turn.
+
+    OpenAI clients normally send the complete conversation on every request.
+    A system message is allowed before the first user message; an assistant or
+    tool message means that the conversation has already started.
+    """
+    if not messages:
+        return False
+    has_user = False
+    for message in messages:
+        role = message.get("role") if isinstance(message, dict) else getattr(message, "role", None)
+        if role in ("assistant", "tool"):
+            return False
+        if role == "user":
+            has_user = True
+    return has_user
+
+
+def add_zeroapi_first_message_prompt(
+    prompt: str, messages: Optional[Sequence[Any]]
+) -> str:
+    """Add the ZeroAPI bootstrap context once, on the initial API turn."""
+    if not is_first_conversation_turn(messages):
+        return prompt
+    if not prompt:
+        return ZEROAPI_FIRST_MESSAGE_PROMPT
+    return f"{ZEROAPI_FIRST_MESSAGE_PROMPT}\n\n{prompt}"
+
+
 # ── Call envelope markers ────────────────────────────────────────────────────
 # Every shape we can recognise. The first one is what we teach the model to use.
 TAG_OPEN = "<tool_call>"
@@ -139,7 +184,9 @@ def build_tool_instructions(
         return ""
     mode, forced = tool_choice_mode(tool_choice)
 
-    lines: List[str] = ["[System Instructions]: You are connected to an API client that can execute tools for you."]
+    lines: List[str] = [
+        "[System Instructions]: You are connected to ZeroAPI, an API client that can execute tools for you."
+    ]
     lines.append("")
     lines.append("TOOLS AVAILABLE:")
     for spec in specs:
@@ -148,20 +195,22 @@ def build_tool_instructions(
         lines.append(f"  arguments schema: {_render_schema(spec['parameters'])}")
     lines.append("")
     lines.append("HOW TO CALL A TOOL")
-    lines.append("Answer with one fenced json block per call, exactly in this shape:")
+    lines.append("When a tool is needed, send a tool-call-only assistant message in exactly this shape:")
     lines.append("")
     lines.append("```json")
     lines.append('{"name": "<tool name>", "arguments": {<arguments object>}}')
     lines.append("```")
     lines.append("")
     lines.append("RULES:")
+    lines.append("- The tool call must be a separate assistant message, with no prose before or after it.")
+    lines.append("- Do not write a greeting, reasoning, explanation, markdown, or status text in the tool-call message.")
     lines.append("- `arguments` must follow the tool's schema. Never invent parameter names.")
-    lines.append("- Write any short explanation BEFORE the json block, never inside it.")
-    lines.append("- Several json blocks in one answer = several tool calls (parallel calls).")
-    lines.append("- A reply that contains a json tool block is NOT sent to the user as a final answer: the tool is executed and you get a [Tool result] message back. Then continue the task.")
+    lines.append("- A reply with a tool block is not a final answer: ZeroAPI executes it and sends back a [Tool result]. Then continue the task in a new assistant message.")
     lines.append("- Never repeat a tool call whose result you already received; use the result instead.")
     if parallel_tool_calls is False:
         lines.append("- Call only ONE tool per answer.")
+    else:
+        lines.append("- If several tools are needed, keep the assistant message tool-call-only; do not add prose between calls.")
     if mode == "required":
         lines.append("- You MUST call one of the tools now, even if you think you already know the answer.")
     elif mode == "function" and forced:
@@ -394,8 +443,11 @@ def parse_tool_calls(text: str, tools: Optional[Sequence[Dict[str, Any]]] = None
                     spans.append((raw.index(stripped) + start, raw.index(stripped) + end))
 
     if calls:
-        first = min(s for s, _ in spans) if spans else len(raw)
-        content = raw[:first]
+        # A tool-call response is a protocol message, not user-facing prose.
+        # Even if a browser model ignored the instruction and added a preamble,
+        # never return that preamble alongside the OpenAI tool_calls object.
+        # This also makes the non-streaming and strict-streaming paths agree.
+        content = ""
     else:
         content = raw
     content = _tidy(content)
@@ -418,8 +470,13 @@ class ToolCallStreamFilter:
     is released; the held tail is resolved by ``finish()``.
     """
 
-    def __init__(self, tools: Optional[Sequence[Dict[str, Any]]] = None):
+    def __init__(
+        self,
+        tools: Optional[Sequence[Dict[str, Any]]] = None,
+        strict_tool_message: bool = False,
+    ):
         self.tools = tools or []
+        self.strict_tool_message = strict_tool_message
         self.text = ""
         self.emitted = 0  # chars of parsed content already emitted
         self._search_from = 0
@@ -451,6 +508,13 @@ class ToolCallStreamFilter:
             self.text = chunk
         else:
             self.text += chunk
+        # Once tools are advertised, the API contract does not allow prose to
+        # leak before a later tool marker. Buffer the complete browser answer;
+        # finish() will either release it as normal content or turn it into a
+        # tool-call-only message. The default remains backwards compatible for
+        # callers that use this helper as a generic prose filter.
+        if self.strict_tool_message:
+            return ""
         hold = self._hold_start()
         end = len(self.text) if hold is None else hold
         if end > self.emitted:
@@ -473,6 +537,12 @@ class ToolCallStreamFilter:
                 self.text = final_text
         parsed = parse_tool_calls(self.text, self.tools)
         if parsed.has_calls:
+            # Tool calls are never accompanied by a prose delta. In strict mode
+            # this is what guarantees that a streamed preamble cannot reach the
+            # client before the parser sees the tool marker.
+            if self.strict_tool_message:
+                self.emitted = len(self.text)
+                return "", parsed
             content = parsed.content
             delta = content[len(self.text[: self.emitted]) :] if content.startswith(self.text[: self.emitted]) else ""
             return delta, parsed

@@ -219,7 +219,9 @@ def test_endpoint_streams_tool_calls():
             finish = [e["choices"][0]["finish_reason"] for e in events if e["choices"][0]["finish_reason"]]
             assert finish == ["tool_calls"], finish
             assert "read" not in content and "```" not in content, f"tool call leaked: {content!r}"
-            assert content.strip() == "Checking now.", repr(content)
+            # Tool calls are a separate assistant message: even a browser model
+            # that emitted a preamble must not leak it before tool_call deltas.
+            assert content.strip() == "", repr(content)
             names = [tc["function"]["name"] for d in deltas for tc in (d.get("tool_calls") or []) if tc.get("function", {}).get("name")]
             args = "".join(tc["function"]["arguments"] for d in deltas for tc in (d.get("tool_calls") or []) if "arguments" in tc.get("function", {}))
             assert names == ["read"], names

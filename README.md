@@ -261,17 +261,22 @@ protocol around them:
 
 1. tool definitions from the request (`tools`) are injected into the prompt that is
    typed into the browser chat,
-2. the model answers with a fenced JSON block
-   (```json {"name": "bash", "arguments": {"command": "ls"}} ```),
+2. the model answers with a tool-call-only assistant message: a fenced JSON block
+   (` ```json {"name": "bash", "arguments": {"command": "ls"}} ``` `), with no
+   greeting, reasoning, or other text before or after it,
 3. ZeroAPI parses that block server-side and returns real OpenAI `tool_calls`
-   (`finish_reason: "tool_calls"`) instead of leaking the JSON as message content,
+   (`finish_reason: "tool_calls"`, `content: null`) instead of leaking the JSON or
+   a preamble as message content,
 4. the client executes the tool and sends the result back as a `role: "tool"`
    message; ZeroAPI folds it back into the next prompt as `[Tool result: <name>] ...`.
 
 Works for both `stream: false` and `stream: true` (tool calls are streamed as
-`delta.tool_calls` chunks). Several calls in one answer are supported
-(parallel calls), and `tool_choice: "none" | "auto" | "required" | {"function": ...}`
-is honoured.
+`delta.tool_calls` chunks). Tool-enabled streams are buffered until a tool call is
+recognized, so accidental text cannot appear before the separate tool-call message.
+Several calls in one tool-only message are supported (parallel calls), and
+`tool_choice: "none" | "auto" | "required" | {"function": ...}` is honoured.
+The first request in a conversation also receives a short ZeroAPI context prompt;
+later requests do not receive it again once assistant/tool history is present.
 
 ```python
 from openai import OpenAI

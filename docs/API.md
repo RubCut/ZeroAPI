@@ -270,7 +270,7 @@ Response:
     "index": 0,
     "message": {
       "role": "assistant",
-      "content": "I will list the files.",
+      "content": null,
       "tool_calls": [{
         "id": "call_9f2c...",
         "type": "function",
@@ -305,8 +305,15 @@ Notes:
 - `tool_choice: "none"` disables tools for that request; `"required"` and
   `{"type": "function", "function": {"name": "..."}}` are honoured in the prompt.
 - `stream_options: {"include_usage": true}` adds a final usage-only chunk.
-- The model is asked to answer with a fenced json block; ZeroAPI strips that block
-  from `content` so clients never see raw tool JSON.
+- The model is instructed to put each tool call in its own assistant message with
+  no greeting, reasoning, or prose before or after the JSON block. ZeroAPI strips
+  any accidental preamble from `content`, so a tool-call response has
+  `content: null` and clients never see raw tool JSON. In streaming mode the
+  tool-enabled response is buffered until the tool call is recognized, so a
+  preamble cannot leak before `finish_reason: "tool_calls"`.
+- The first request in a conversation receives a short ZeroAPI context because
+  browser chats do not expose a native system-message channel. It is not added
+  again after an assistant/tool message is present.
 - MCP: `GET /v1/tools` lists configured MCP tools in OpenAI format, and when a
   request carries no `tools` while `mcp_servers` are configured, the server injects
   them and executes the calls itself (`mcp_tools.auto_execute`).
